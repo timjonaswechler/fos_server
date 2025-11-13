@@ -1,0 +1,23 @@
+[package]
+name = "fos_server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# general
+bevy = { workspace = true }
+bevy_app = { workspace = true }
+# networking
+aeronet = { workspace = true }
+aeronet_io = { workspace = true }
+aeronet_replicon = { workspace = true }
+aeronet_transport = { workspace = true }
+aeronet_websocket = { workspace = true }
+aeronet_webtransport = { workspace = true }
+
+# For examples only
+[dev-dependencies]
+bevy = { workspace = true, features = ["bevy_render", "bevy_core_pipeline"] }
