@@ -1,0 +1,22 @@
+[workspace]
+members = ["fos_server"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Tim-Jonas Wechler"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/timjonaswechler/fos_server"
+
+[workspace.dependencies]
+# general
+bevy = { version = "0.17.2" , default-features = false }
+bevy_app = { version = "0.17.2", default-features = false }
+# networking
+aeronet = { version = "0.17.2", default-features = false }
+aeronet_io = { version = "0.17.2", default-features = false }
+aeronet_replicon = { version = "0.17.2", default-features = false }
+aeronet_transport = { version = "0.17.2", default-features = false }
+aeronet_websocket = { version = "0.17.2" }
+aeronet_webtransport = { version = "0.17.2" }
