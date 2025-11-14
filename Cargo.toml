@@ -1,19 +1,14 @@
-[workspace]
-members = ["fos_server"]
-resolver = "2"
-
-[workspace.package]
+[package]
+name = "fos_server"
 version = "0.1.0"
 edition = "2021"
 authors = ["Tim-Jonas Wechler"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/timjonaswechler/fos_server"
 
-[workspace.dependencies]
-# general
+[dependencies]
 bevy = { version = "0.17.2" , default-features = false }
 bevy_app = { version = "0.17.2", default-features = false }
-# networking
 aeronet = { version = "0.17.2", default-features = false }
 aeronet_io = { version = "0.17.2", default-features = false }
 aeronet_replicon = { version = "0.17.2", default-features = false }
