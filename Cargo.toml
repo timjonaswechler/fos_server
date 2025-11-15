@@ -7,11 +7,21 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/timjonaswechler/fos_server"
 
 [dependencies]
-bevy = { version = "0.17.2" , default-features = false }
+aeronet = { version = "0.17.2", default-features = false, features = ["visualizer"]}
+aeronet_replicon = { version = "0.17.2", default-features = false, features = ["client", "server"] }
+aeronet_websocket = { version = "0.17.2", features = ["client", "server"]  }
+aeronet_webtransport = { version = "0.17.2", features = [
+  "client",
+  "dangerous-configuration",
+  "server",
+] }
+
+bevy = { version = "0.17.2" }
+bevy_replicon.workspace = true
 bevy_app = { version = "0.17.2", default-features = false }
-aeronet = { version = "0.17.2", default-features = false }
-aeronet_io = { version = "0.17.2", default-features = false }
-aeronet_replicon = { version = "0.17.2", default-features = false }
-aeronet_transport = { version = "0.17.2", default-features = false }
-aeronet_websocket = { version = "0.17.2" }
-aeronet_webtransport = { version = "0.17.2" }
+bevy_egui = { version = "0.37.0" }
+
+cfg-if = { version = "1.0.0" }
+clap = { version = "4.5.32", features = ["derive"] }
+
+serde = { version = "1.0.219", features = ["derive"] }
