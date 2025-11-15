@@ -167,12 +167,23 @@ pub struct PlayerInput {
 #[derive(Debug, Default, Component)]
 pub struct PlayerInputState {
     current: PlayerInput,
-    pending: VecDeque<PlayerInput>,
+    pending: VecDeque<TimedInput>,
+    last_simulated_at: f64,
+}
+
+#[derive(Debug, Clone)]
+struct TimedInput {
+    received_at: f64,
+    input: PlayerInput,
 }
 
 impl PlayerInputState {
-    fn queue_input(&mut self, input: PlayerInput) {
-        self.pending.push_back(input);
+    fn queue_input(&mut self, input: PlayerInput, received_at: f64) {
+        self.pending.push_back(TimedInput { received_at, input });
+    }
+
+    fn mark_simulated(&mut self, now: f64) {
+        self.last_simulated_at = now;
     }
 
     #[cfg(test)]
@@ -193,8 +204,11 @@ impl PlayerInputState {
 
 fn recv_input(
     mut inputs: MessageReader<FromClient<PlayerInput>>,
+    time: Res<Time>,
     mut players: Query<&mut PlayerInputState>,
 ) {
+    let now = time.elapsed_secs_f64();
+
     for &FromClient {
         client_id,
         message: ref new_input,
@@ -204,10 +218,11 @@ fn recv_input(
             continue;
         };
 
-        let Ok(mut input_state) = players.get_mut(client_entity) else {
+        let Ok(mut state) = players.get_mut(client_entity) else {
             continue;
         };
-        input_state.queue_input(new_input.clone());
+
+        state.queue_input(new_input.clone(), now);
     }
 }
 
@@ -215,36 +230,50 @@ fn apply_movement(
     time: Res<Time>,
     mut players: Query<(&mut PlayerInputState, &mut PlayerPosition)>,
 ) {
-    let delta_time = time.delta_secs();
-    for (mut input_state, mut position) in &mut players {
-        integrate_player_inputs(&mut input_state, &mut position, delta_time);
+    let now = time.elapsed_secs_f64();
+    let delta_time = time.delta_secs_f64();
+
+    for (mut state, mut position) in &mut players {
+        integrate_player_inputs(&mut state, &mut position, now, delta_time);
     }
 }
 
 fn integrate_player_inputs(
     state: &mut PlayerInputState,
     position: &mut PlayerPosition,
-    delta_time: f32,
+    now: f64,
+    tick_dt: f64,
 ) {
+    // Startpunkt für die Simulation: entweder das Ende des letzten Ticks oder "jetzt - tick_dt"
+    let mut last_time = state.last_simulated_at.max(now - tick_dt);
+
+    // (1) Alle neuen Eingaben chronologisch durchlaufen
+    while let Some(next) = state.pending.front().cloned() {
+        if next.received_at > now {
+            break;
+        }
+
+        let segment_dt = (next.received_at - last_time).max(0.0) as f32;
+        apply_single_input(position, &state.current, segment_dt);
+
+        // neue Eingabe aktivieren und weitermachen
+        state.current = next.input;
+        state.pending.pop_front();
+        last_time = next.received_at;
+    }
+
+    // (2) Rest der Zeitspanne bis zum aktuellen Tick-Ende mit dem zuletzt aktiven Input integrieren
+    let remaining_dt = (now - last_time).max(0.0) as f32;
+    apply_single_input(position, &state.current, remaining_dt);
+
+    state.mark_simulated(now);
+}
+
+fn apply_single_input(position: &mut PlayerPosition, input: &PlayerInput, delta_time: f32) {
     if delta_time <= f32::EPSILON {
         return;
     }
 
-    let segment_count = state.pending.len() + 1;
-    let segment_dt = delta_time / segment_count as f32;
-
-    let mut active_input = state.current.clone();
-    apply_single_input(position, &active_input, segment_dt);
-
-    while let Some(next_input) = state.pending.pop_front() {
-        active_input = next_input;
-        apply_single_input(position, &active_input, segment_dt);
-    }
-
-    state.current = active_input;
-}
-
-fn apply_single_input(position: &mut PlayerPosition, input: &PlayerInput, delta_time: f32) {
     if let Some(direction) = input.movement.try_normalize() {
         **position += direction * delta_time * MOVE_SPEED;
     }
@@ -265,10 +294,10 @@ mod tests {
         let mut state = PlayerInputState::default();
         let mut position = PlayerPosition(Vec2::ZERO);
 
-        state.queue_input(make_input(1.0, 0.0));
-        state.queue_input(make_input(0.0, 1.0));
+        state.queue_input(make_input(1.0, 0.0), 1.0 / 3.0);
+        state.queue_input(make_input(0.0, 1.0), 2.0 / 3.0);
 
-        integrate_player_inputs(&mut state, &mut position, 1.0);
+        integrate_player_inputs(&mut state, &mut position, 1.0, 1.0);
 
         let expected_delta = MOVE_SPEED / 3.0;
         assert!((position.x - expected_delta).abs() < 1e-5);
@@ -286,7 +315,7 @@ mod tests {
         state.set_current(make_input(0.0, 2.0));
 
         let mut position = PlayerPosition(Vec2::ZERO);
-        integrate_player_inputs(&mut state, &mut position, 0.5);
+        integrate_player_inputs(&mut state, &mut position, 0.5, 0.5);
 
         let expected = MOVE_SPEED * 0.5;
         assert!(position.x.abs() < 1e-5);

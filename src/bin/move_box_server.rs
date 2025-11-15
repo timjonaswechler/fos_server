@@ -1,17 +1,10 @@
 //! See `src/move_box.rs`.
 
-cfg_if::cfg_if! {
-    if #[cfg(target_family = "wasm")] {
-        fn main() {
-            panic!("not supported on WASM");
-        }
-    } else {
-
 use {
     aeronet::io::{
-        Session,
-        connection::{Disconnected, DisconnectReason, LocalAddr},
+        connection::{DisconnectReason, Disconnected, LocalAddr},
         server::Server,
+        Session,
     },
     aeronet_replicon::server::{AeronetRepliconServer, AeronetRepliconServerPlugin},
     aeronet_websocket::server::{WebSocketServer, WebSocketServerPlugin},
@@ -20,7 +13,10 @@ use {
         server::{SessionRequest, SessionResponse, WebTransportServer, WebTransportServerPlugin},
         wtransport,
     },
-    bevy::{ecs::schedule::ScheduleLabel, app::ScheduleRunnerPlugin, log::LogPlugin, prelude::*, state::app::StatesPlugin},
+    bevy::{
+        app::ScheduleRunnerPlugin, ecs::schedule::ScheduleLabel, log::LogPlugin, prelude::*,
+        state::app::StatesPlugin,
+    },
     bevy_replicon::prelude::*,
     core::time::Duration,
     fos_server::move_box::{
@@ -169,11 +165,7 @@ fn on_opened(trigger: On<Add, Server>, servers: Query<&LocalAddr>) {
     info!("{server} opened on {}", **local_addr);
 }
 
-fn on_connected(
-    trigger: On<Add, Session>,
-    clients: Query<&ChildOf>,
-    mut commands: Commands,
-) {
+fn on_connected(trigger: On<Add, Session>, clients: Query<&ChildOf>, mut commands: Commands) {
     let client = trigger.event_target();
     let Ok(&ChildOf(server)) = clients.get(client) else {
         return;
@@ -218,5 +210,3 @@ fn on_disconnected(trigger: On<Disconnected>, clients: Query<&ChildOf>) {
         }
     }
 }
-
-}}

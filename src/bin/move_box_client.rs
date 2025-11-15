@@ -287,28 +287,6 @@ fn web_transport_ui(
 
 type WebTransportClientConfig = aeronet_webtransport::client::ClientConfig;
 
-#[cfg(target_family = "wasm")]
-fn web_transport_config(cert_hash: String) -> WebTransportClientConfig {
-    use aeronet_webtransport::xwt_web::{CertificateHash, HashAlgorithm};
-
-    let server_certificate_hashes = match cert::hash_from_b64(&cert_hash) {
-        Ok(hash) => vec![CertificateHash {
-            algorithm: HashAlgorithm::Sha256,
-            value: Vec::from(hash),
-        }],
-        Err(err) => {
-            warn!("Failed to read certificate hash from string: {err:?}");
-            Vec::new()
-        }
-    };
-
-    WebTransportClientConfig {
-        server_certificate_hashes,
-        ..Default::default()
-    }
-}
-
-#[cfg(not(target_family = "wasm"))]
 fn web_transport_config(cert_hash: String) -> WebTransportClientConfig {
     use {aeronet_webtransport::wtransport::tls::Sha256Digest, core::time::Duration};
 
@@ -385,12 +363,6 @@ fn web_socket_ui(
 
 type WebSocketClientConfig = aeronet_websocket::client::ClientConfig;
 
-#[cfg(target_family = "wasm")]
-fn web_socket_config() -> WebSocketClientConfig {
-    WebSocketClientConfig::default()
-}
-
-#[cfg(not(target_family = "wasm"))]
 fn web_socket_config() -> WebSocketClientConfig {
     WebSocketClientConfig::builder().with_no_cert_validation()
 }
