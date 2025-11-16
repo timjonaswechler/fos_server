@@ -81,21 +81,17 @@ pub struct PlayerInput {
 }
 
 /// Ein einzelnes Input-Sample, das vom Client gesendet wird.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct InputSample {
-    /// Sequenznummer, monoton steigend pro Client-Verbindung.
-    pub sequence: u32,
-    /// Zeitstempel auf Client-Seite (z. B. Sekunden seit Session-Start).
-    pub sent_at: f64,
-    /// Nutzlast des Samples.
-    pub input: PlayerInput,
+    pub sequence: u32,      // monoton steigender Zähler pro Client-Verbindung
+    pub sent_at: f64,       // Zeitstempel auf Client-Seite (z.B. Sekunden seit Start)
+    pub input: PlayerInput, // Nutzlast (Movement etc.)
 }
 
 /// Datagramm, das mehrere Samples enthält.
-#[derive(Debug, Clone, Message, Serialize, Deserialize)]
+#[derive(Message, Clone, Serialize, Deserialize)]
 pub struct PlayerInputPayload {
-    /// Neueste Probe zuerst. Der Server verarbeitet sie rückwärts, um die
-    /// chronologische Reihenfolge beizubehalten.
+    /// neuestes Sample steht als erstes, damit der Server beim „Hot Path“ nicht sortieren muss
     pub samples: Vec<InputSample>,
 }
 
@@ -156,16 +152,7 @@ impl PlayerInputState {
 
     #[cfg(test)]
     fn pending_len(&self) -> usize {
-        self.pending.len()
-    }
-
-    #[cfg(test)]
-    fn current_movement(&self) -> Vec2 {
-        self.current.movement
-    }
-
-    #[cfg(test)]
-    fn set_current(&mut self, input: PlayerInput) {
+        self.pending.len();
         self.current = input;
     }
 
@@ -185,7 +172,7 @@ fn recv_input(
     time: Res<Time>,
     mut players: Query<&mut PlayerInputState>,
 ) {
-    let now = f64::from(time.elapsed_secs());
+    let now = time.elapsed_secs_f64();
 
     for FromClient { client_id, message } in inputs.read() {
         let ClientId::Client(entity) = client_id else {
@@ -195,29 +182,28 @@ fn recv_input(
             continue;
         };
 
+        // Samples in zeitlicher Reihenfolge verarbeiten (ältestes zuerst)
         for sample in message.samples.iter().take(MAX_INPUT_SAMPLES).rev() {
             let sequence = sample.sequence;
 
-            let expected = match state.next_expected() {
-                Some(expected) => {
-                    if sequence < expected {
-                        continue;
-                    }
-                    if sequence > expected {
-                        state.fill_gap_until(expected, sequence, now)
-                    } else {
-                        expected
-                    }
-                }
-                None => {
-                    state.expect_next(sequence);
-                    sequence
-                }
+            if state.next_expected().is_none() {
+                state.expect_next(sequence);
+            }
+
+            let expected = state.next_expected().unwrap();
+            if sequence < expected {
+                continue;
+            }
+
+            let expected_after_fill = if sequence > expected {
+                state.fill_gap_until(expected, sequence, now)
+            } else {
+                expected
             };
 
-            if sequence > expected {
-                // Wir haben mehr als MAX_INPUT_GAP_FILL ausgefüllt; der Rest wird fallen gelassen.
-                state.expect_next(sequence);
+            if expected_after_fill != sequence {
+                // Lücke war größer als erlaubt, Sample wird verworfen.
+                continue;
             }
 
             state.enqueue_sample(TimedInput {
@@ -236,8 +222,8 @@ fn apply_movement(
     time: Res<Time>,
     mut players: Query<(&mut PlayerInputState, &mut PlayerPosition)>,
 ) {
-    let now = f64::from(time.elapsed_secs());
-    let delta_time = f64::from(time.delta_secs());
+    let now = time.elapsed_secs_f64();
+    let delta_time = time.delta_secs_f64();
 
     for (mut state, mut position) in &mut players {
         integrate_player_inputs(&mut state, &mut position, now, delta_time);
@@ -250,12 +236,14 @@ fn integrate_player_inputs(
     now: f64,
     tick_dt: f64,
 ) {
+    // Startpunkt für die Simulation: entweder das Ende des letzten Ticks oder "jetzt - tick_dt"
     if tick_dt <= f64::EPSILON {
         return;
     }
 
     let mut last_time = state.last_simulated_at.max(now - tick_dt);
 
+    // (1) Alle neuen Eingaben chronologisch durchlaufen
     while let Some(next) = state.pending.front().cloned() {
         if next.received_at > now {
             break;
@@ -264,11 +252,13 @@ fn integrate_player_inputs(
         let segment_dt = (next.received_at - last_time).max(0.0) as f32;
         apply_single_input(position, &state.current, segment_dt);
 
+        // neue Eingabe aktivieren und weitermachen
         state.current = next.input;
         state.pending.pop_front();
         last_time = next.received_at;
     }
 
+    // (2) Rest der Zeitspanne bis zum aktuellen Tick-Ende mit dem zuletzt aktiven Input integrieren
     let remaining_dt = (now - last_time).max(0.0) as f32;
     apply_single_input(position, &state.current, remaining_dt);
 
@@ -337,10 +327,10 @@ mod tests {
         let mut state = PlayerInputState::default();
         let time_now = 1.0;
 
-        // Simulate receiving sequence 3 while expecting 0.
         state.expect_next(0);
-        state.fill_gap_until(0, 3, time_now);
+        let filled_target = state.fill_gap_until(0, 3, time_now);
 
+        assert_eq!(filled_target, 3);
         assert_eq!(state.pending_len(), MAX_INPUT_GAP_FILL.min(3) as usize);
         assert_eq!(state.next_expected(), Some(3));
     }
