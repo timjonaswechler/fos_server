@@ -10,6 +10,7 @@ repository.workspace = true
 # general
 bevy = { workspace = true }
 bevy_egui = { workspace = true }
+rand = "0.8" # For random error simulation
 
 # networking
 aeronet = { workspace = true }
