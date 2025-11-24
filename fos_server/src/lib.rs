@@ -225,11 +225,19 @@ pub fn on_disconnect_from_server(
 
 pub fn on_retry_connection(
     _: On<RetryConnection>,
-    mut commands: Commands, // Commands added
+    mut commands: Commands,
     mut conn_state: ResMut<NextState<ConnectToServerState>>,
-    config: Res<ConnectionConfig>, // Config added
+    config: Res<ConnectionConfig>,
+    // Query für existierende (evtl. tote) Sessions oder Endpoints
+    old_sessions: Query<Entity, Or<(With<Session>, With<SessionEndpoint>)>>,
 ) {
+    // Cleanup: Alte Versuche löschen, bevor wir neu starten
+    for entity in &old_sessions {
+        commands.entity(entity).despawn_recursive();
+    }
+
     conn_state.set(ConnectToServerState::Connecting);
+    
     // Retry = Connect again
     let client_config = ClientConfig::default();
     let target_url = format!("https://{}", config.target_ip);
