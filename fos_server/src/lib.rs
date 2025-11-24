@@ -1,6 +1,6 @@
 use {
     aeronet_io::{
-        connection::{DisconnectReason, Disconnected},
+        connection::{Disconnect, DisconnectReason, Disconnected},
         Session, SessionEndpoint,
     },
     aeronet_webtransport::client::{ClientConfig, WebTransportClient, WebTransportClientPlugin},
@@ -194,7 +194,10 @@ pub fn on_start_connection(
     let target_url = format!("https://{}", config.target_ip); // WebTransport braucht URL
 
     info!("Connecting to {}...", target_url);
-    commands.queue(WebTransportClient::connect(client_config, target_url));
+    let name = format!("Connection. {}", target_url);
+    commands
+        .spawn(Name::new(name))
+        .queue(WebTransportClient::connect(client_config, target_url));
 }
 
 pub fn on_disconnect_from_server(
@@ -206,10 +209,7 @@ pub fn on_disconnect_from_server(
     conn_state.set(ConnectToServerState::Disconnecting);
     // Aeronet Disconnect
     for entity in &sessions {
-        commands.queue(WebTransportClient::disconnect(
-            entity,
-            DisconnectReason::ByUser("Disconnect Button clicked".into()),
-        ));
+        commands.trigger(Disconnect::new(entity, "Disconnect Button clicked"));
     }
 }
 
@@ -223,7 +223,10 @@ pub fn on_retry_connection(
     // Retry = Connect again
     let client_config = ClientConfig::default();
     let target_url = format!("https://{}", config.target_ip);
-    commands.queue(WebTransportClient::connect(client_config, target_url));
+    let name = format!("Connection. {}", target_url);
+    commands
+        .spawn(Name::new(name))
+        .queue(WebTransportClient::connect(client_config, target_url));
 }
 
 pub fn on_reset_to_menu(_: On<ResetToMainMenu>, mut scope: ResMut<NextState<AppScope>>) {
