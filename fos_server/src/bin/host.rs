@@ -24,9 +24,10 @@ fn ui_example_system(
     open_to_lan_state: Option<Res<State<OpenToLANState>>>,
     connect_state: Option<Res<State<ConnectToServerState>>>,
     error_msg: Res<ErrorMessage>,
+    mut config: ResMut<ConnectionConfig>, // Neu: Zugriff auf Config
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("Host Client Status").show(egui.ctx_mut()?, |ui| match app_scope.get() {
-        AppScope::MainMenu => ui_main_menu(ui, &mut commands),
+        AppScope::MainMenu => ui_main_menu(ui, &mut commands, &mut config),
 
         AppScope::Singleplayer => {
             if let (Some(sp_state), Some(lan_state)) = (singleplayer_state, open_to_lan_state) {
@@ -36,6 +37,7 @@ fn ui_example_system(
                     sp_state.get(),
                     lan_state.get(),
                     &error_msg.0,
+                    &mut config, // Neu
                 );
             }
         }
@@ -49,11 +51,18 @@ fn ui_example_system(
     Ok(())
 }
 
-fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands) {
+fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut ConnectionConfig) {
     ui.heading("Main Menu");
     if ui.button("Start Singleplayer").clicked() {
         commands.trigger(StartSingleplayer);
     }
+    
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("Target IP:");
+        ui.text_edit_singleline(&mut config.target_ip);
+    });
+    
     if ui.button("Connect to Server").clicked() {
         commands.trigger(StartConnection);
     }
@@ -65,6 +74,7 @@ fn ui_singleplayer(
     sp_state: &SingleplayerState,
     lan_state: &OpenToLANState,
     error_text: &str,
+    config: &mut ConnectionConfig, // Neu
 ) {
     ui.heading("Singleplayer Mode");
 
@@ -98,6 +108,10 @@ fn ui_singleplayer(
                 ui.label(format!("LAN: {:?}", lan_state));
                 match lan_state {
                     OpenToLANState::Private => {
+                        ui.horizontal(|ui| {
+                            ui.label("Port:");
+                            ui.text_edit_singleline(&mut config.lan_port);
+                        });
                         if ui.button("Go Public (LAN)").clicked() {
                             commands.trigger(SingleplayerGoingPublic);
                         }

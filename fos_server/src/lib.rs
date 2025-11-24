@@ -1,17 +1,26 @@
-use bevy::prelude::*;
-use rand::Rng;
+use {
+    aeronet_io::{
+        connection::{DisconnectReason, Disconnected},
+        Session, SessionEndpoint,
+    },
+    aeronet_webtransport::client::{ClientConfig, WebTransportClient, WebTransportClientPlugin},
+    bevy::prelude::*,
+    rand::Rng,
+};
 
 pub struct FOSServerPlugin;
 
 impl Plugin for FOSServerPlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<AppScope>()
+        app.add_plugins(WebTransportClientPlugin) // Aeronet Plugin
+            .init_state::<AppScope>()
             .init_resource::<FakeLoadingTimer>()
             .init_resource::<ErrorMessage>()
+            .init_resource::<ConnectionConfig>() // Neu: Config für IP/Port
             .add_sub_state::<SingleplayerState>()
             .add_sub_state::<OpenToLANState>()
             .add_sub_state::<ConnectToServerState>()
-            // --- Simulation Logic ---
+            // --- Simulation Logic (Singleplayer Only) ---
             .add_systems(
                 Update,
                 simulate_singleplayer_starting.run_if(in_state(SingleplayerState::Starting)),
@@ -28,23 +37,35 @@ impl Plugin for FOSServerPlugin {
                 Update,
                 simulate_going_private.run_if(in_state(OpenToLANState::GoingPrivate)),
             )
-            .add_systems(
-                Update,
-                simulate_connecting.run_if(in_state(ConnectToServerState::Connecting)),
-            )
-            .add_systems(
-                Update,
-                simulate_disconnecting.run_if(in_state(ConnectToServerState::Disconnecting)),
-            )
-            // --- Observers ---
+            // (Client Simulation entfernt)
+            // --- Observers (UI Events) ---
             .add_observer(on_start_singleplayer)
             .add_observer(on_stop_singleplayer)
             .add_observer(on_lan_going_public)
             .add_observer(on_lan_going_private)
-            .add_observer(on_start_connection)
+            .add_observer(on_start_connection) // Startet jetzt echten Connect
             .add_observer(on_disconnect_from_server)
             .add_observer(on_retry_connection)
-            .add_observer(on_reset_to_menu);
+            .add_observer(on_reset_to_menu)
+            // --- Observers (Aeronet Network Events) ---
+            .add_observer(on_client_connecting)
+            .add_observer(on_client_connected)
+            .add_observer(on_client_disconnected);
+    }
+}
+
+#[derive(Resource)]
+pub struct ConnectionConfig {
+    pub target_ip: String,
+    pub lan_port: String,
+}
+
+impl Default for ConnectionConfig {
+    fn default() -> Self {
+        Self {
+            target_ip: "127.0.0.1:25565".to_string(),
+            lan_port: "25565".to_string(),
+        }
     }
 }
 
@@ -121,7 +142,7 @@ pub struct RetryConnection;
 #[derive(Event, Debug, Clone, Copy)]
 pub struct ResetToMainMenu;
 
-// --- OBSERVERS ---
+// --- OBSERVERS (Logik) ---
 
 pub fn on_start_singleplayer(
     _: On<StartSingleplayer>,
@@ -159,39 +180,99 @@ pub fn on_lan_going_private(
     timer.start(0.5);
 }
 
+// Startet den ECHTEN Verbindungsaufbau
 pub fn on_start_connection(
     _: On<StartConnection>,
+    mut commands: Commands,
     mut scope: ResMut<NextState<AppScope>>,
-    mut timer: ResMut<FakeLoadingTimer>,
+    config: Res<ConnectionConfig>,
 ) {
-    scope.set(AppScope::Client);
-    timer.start(2.0);
+    scope.set(AppScope::Client); // UI auf Client Mode
+
+    // Aeronet Connect Call
+    let client_config = ClientConfig::default();
+    let target_url = format!("https://{}", config.target_ip); // WebTransport braucht URL
+
+    info!("Connecting to {}...", target_url);
+    commands.queue(WebTransportClient::connect(client_config, target_url));
 }
 
 pub fn on_disconnect_from_server(
     _: On<DisconnectFromServer>,
+    mut commands: Commands,
     mut conn_state: ResMut<NextState<ConnectToServerState>>,
-    mut timer: ResMut<FakeLoadingTimer>,
+    sessions: Query<Entity, With<Session>>,
 ) {
     conn_state.set(ConnectToServerState::Disconnecting);
-    timer.start(0.5);
+    // Aeronet Disconnect
+    for entity in &sessions {
+        commands.queue(WebTransportClient::disconnect(
+            entity,
+            DisconnectReason::ByUser("Disconnect Button clicked".into()),
+        ));
+    }
 }
 
 pub fn on_retry_connection(
     _: On<RetryConnection>,
+    mut commands: Commands, // Commands added
     mut conn_state: ResMut<NextState<ConnectToServerState>>,
-    mut timer: ResMut<FakeLoadingTimer>,
+    config: Res<ConnectionConfig>, // Config added
 ) {
-    // Reset state to Connecting -> triggers simulation again
     conn_state.set(ConnectToServerState::Connecting);
-    timer.start(1.0);
+    // Retry = Connect again
+    let client_config = ClientConfig::default();
+    let target_url = format!("https://{}", config.target_ip);
+    commands.queue(WebTransportClient::connect(client_config, target_url));
 }
 
 pub fn on_reset_to_menu(_: On<ResetToMainMenu>, mut scope: ResMut<NextState<AppScope>>) {
     scope.set(AppScope::MainMenu);
 }
 
-// --- SIMULATION SYSTEMS (mit Zufallsfehlern) ---
+// --- AERONET OBSERVERS ---
+
+// Wenn Aeronet eine Session anlegt (Handshake start)
+fn on_client_connecting(
+    _trigger: On<Add, SessionEndpoint>,
+    mut state: ResMut<NextState<ConnectToServerState>>,
+) {
+    state.set(ConnectToServerState::Connecting);
+}
+
+// Wenn Handshake erfolgreich
+fn on_client_connected(
+    _trigger: On<Add, Session>,
+    mut state: ResMut<NextState<ConnectToServerState>>,
+) {
+    info!("Aeronet: Connected!");
+    state.set(ConnectToServerState::Connected);
+}
+
+// Wenn Verbindung abbricht
+fn on_client_disconnected(
+    trigger: On<Disconnected>,
+    mut state: ResMut<NextState<ConnectToServerState>>,
+    mut err: ResMut<ErrorMessage>,
+    mut app_scope: ResMut<NextState<AppScope>>, // Um bei User Disconnect ins Menu zu gehen
+) {
+    let reason = &trigger.event().reason;
+    info!("Aeronet: Disconnected: {:?}", reason);
+
+    match reason {
+        DisconnectReason::ByUser(_) => {
+            // Gewollter Disconnect -> Zurück ins Main Menu
+            app_scope.set(AppScope::MainMenu);
+        }
+        _ => {
+            // Fehler -> Fehler Screen
+            err.0 = format!("{:?}", reason);
+            state.set(ConnectToServerState::Failed);
+        }
+    }
+}
+
+// --- SIMULATION SYSTEMS (nur noch Host Logic) ---
 
 pub fn simulate_singleplayer_starting(
     time: Res<Time>,
@@ -251,34 +332,5 @@ pub fn simulate_going_private(
     timer.0.tick(time.delta());
     if timer.0.is_finished() {
         next.set(OpenToLANState::Private);
-    }
-}
-
-pub fn simulate_connecting(
-    time: Res<Time>,
-    mut timer: ResMut<FakeLoadingTimer>,
-    mut next: ResMut<NextState<ConnectToServerState>>,
-    mut err: ResMut<ErrorMessage>,
-) {
-    timer.0.tick(time.delta());
-    if timer.0.is_finished() {
-        // 30% Chance auf Connection Error
-        if rand::thread_rng().gen_bool(0.3) {
-            err.0 = "Host unreachable (Timeout)".to_string();
-            next.set(ConnectToServerState::Failed);
-        } else {
-            next.set(ConnectToServerState::Connected);
-        }
-    }
-}
-
-pub fn simulate_disconnecting(
-    time: Res<Time>,
-    mut timer: ResMut<FakeLoadingTimer>,
-    mut next_scope: ResMut<NextState<AppScope>>,
-) {
-    timer.0.tick(time.delta());
-    if timer.0.is_finished() {
-        next_scope.set(AppScope::MainMenu);
     }
 }

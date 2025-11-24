@@ -14,10 +14,10 @@ repository = "https://github.com/timjonaswechler/fos_server"
 bevy = { version = "0.17.2"  }
 bevy_egui = { version = "0.38.0" }
 # networking
-aeronet = { version = "0.17.2", default-features = false }
-aeronet_io = { version = "0.17.2", default-features = false }
-aeronet_channel = { version = "0.17.2", default-features = false }
-aeronet_replicon = { version = "0.17.2", default-features = false }
-aeronet_transport = { version = "0.17.2", default-features = false }
+aeronet = { version = "0.17.2"}
+aeronet_io = { version = "0.17.2"}
+aeronet_channel = { version = "0.17.2" }
+aeronet_replicon = { version = "0.17.2" }
+aeronet_transport = { version = "0.17.2" }
 aeronet_websocket = { version = "0.17.2" }
 aeronet_webtransport = { version = "0.17.2" }
