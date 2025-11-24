@@ -31,25 +31,27 @@ impl Plugin for FOSServerPlugin {
         .init_resource::<ErrorMessage>()
         .init_resource::<ConnectionConfig>()
         .init_resource::<LanServerInfo>()
-        .add_sub_state::<SingleplayerState>()
-        .add_sub_state::<OpenToLANState>()
-        .add_sub_state::<ConnectToServerState>()
-        // --- LAN Server Logik Systeme  ---
-        .add_systems(OnEnter(OpenToLANState::GoingPublic), on_going_public)
-        .add_systems(OnEnter(OpenToLANState::GoingPrivate), on_going_private)
-        // --- Observers (UI Events) ---
-        .add_observer(on_start_singleplayer)
-        .add_observer(on_stop_singleplayer)
-        .add_observer(on_lan_going_public)
-        .add_observer(on_lan_going_private)
-        .add_observer(connection::to_server_start_connection)
-        .add_observer(connection::to_server_disconnect)
-        .add_observer(connection::to_server_retry_connection)
+        .add_sub_state::<HostState>()
+        .add_sub_state::<ServerVisibility>()
+        .add_sub_state::<ClientState>()
+        // --- Server Visibility Logic (Systems) ---
+        .add_systems(OnEnter(ServerVisibility::Opening), perform_open_server)
+        .add_systems(OnEnter(ServerVisibility::Closing), perform_close_server)
+        // --- Cleanup System ---
+        .add_systems(Update, sys_cleanup_pending)
+        // --- Observers (UI/User Requests) ---
+        .add_observer(on_start_host)
+        .add_observer(on_stop_host)
+        .add_observer(on_open_server)
+        .add_observer(on_close_server)
+        .add_observer(connection::on_request_connect)
+        .add_observer(connection::on_request_disconnect)
+        .add_observer(connection::on_request_retry)
         .add_observer(on_reset_to_menu)
         // --- Observers (Aeronet Network Events) ---
-        .add_observer(on_client_connecting)
-        .add_observer(on_client_connected)
-        .add_observer(on_client_disconnected)
+        .add_observer(on_client_session_connecting)
+        .add_observer(on_client_session_connected)
+        .add_observer(on_client_session_disconnected)
         // --- Observers (WebTransport Server Events) ---
         .add_observer(on_webtransport_session_request);
     }
@@ -73,11 +75,20 @@ impl Default for ConnectionConfig {
 #[derive(Resource, Default)]
 pub struct ErrorMessage(pub String);
 
-//  Resource für LAN Server Details
+// Resource for LAN Server Details
 #[derive(Resource, Default)]
 pub struct LanServerInfo {
     pub address: String,
     pub cert_hash: String,
+}
+
+#[derive(Component)]
+pub struct CleanupPending;
+
+fn sys_cleanup_pending(mut commands: Commands, query: Query<Entity, With<CleanupPending>>) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
 }
 
 // --- STATES ---
@@ -85,35 +96,35 @@ pub struct LanServerInfo {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
 pub enum AppScope {
     #[default]
-    MainMenu,
-    Singleplayer,
+    Menu,
+    Host,
     Client,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
-#[source(AppScope = AppScope::Singleplayer)]
-pub enum SingleplayerState {
+#[source(AppScope = AppScope::Host)]
+pub enum HostState {
     #[default]
     Starting,
     Running,
+    Stopping,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
+#[source(AppScope = AppScope::Host)]
+pub enum ServerVisibility {
+    #[default]
+    Local,
+    Opening,
+    Public,
     Closing,
     Failed,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
-#[source(AppScope = AppScope::Singleplayer)]
-pub enum OpenToLANState {
-    #[default]
-    Private,
-    GoingPrivate,
-    Public,
-    GoingPublic,
-    Failed,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
 #[source(AppScope = AppScope::Client)]
-pub enum ConnectToServerState {
+pub enum ClientState {
     #[default]
     Connecting,
     Connected,
@@ -121,41 +132,48 @@ pub enum ConnectToServerState {
     Failed,
 }
 
-// --- EVENTS ---
+// --- EVENTS (Requests) ---
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct StartSingleplayer;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct StopSingleplayer;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct SingleplayerGoingPublic;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct SingleplayerGoingPrivate;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct StartConnection;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct DisconnectFromServer;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct RetryConnection;
-#[derive(Event, Debug, Clone, Copy)]
-pub struct ResetToMainMenu;
+pub struct RequestStartHost;
 
-// --- OBSERVERS (UI Trigger Logik) ---
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestStopHost;
 
-// Component zum Markieren von lokalen Sessions für einfaches Cleanup
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestOpenServer;
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestCloseServer;
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestConnect;
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestDisconnect;
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestRetryConnect;
+
+#[derive(Event, Debug, Clone, Copy)]
+pub struct RequestResetToMenu;
+
+// --- OBSERVERS (UI Trigger Logic) ---
+
+// Component to mark local sessions for easy cleanup
 #[derive(Component)]
 pub struct LocalSession;
 
-// Startet den Singleplayer mit ChannelIO
-pub fn on_start_singleplayer(
-    _: On<StartSingleplayer>,
+// Starts the Host mode with ChannelIO
+pub fn on_start_host(
+    _: On<RequestStartHost>,
     mut commands: Commands,
     mut scope: ResMut<NextState<AppScope>>,
-    mut sp_state: ResMut<NextState<SingleplayerState>>,
+    mut host_state: ResMut<NextState<HostState>>,
 ) {
-    scope.set(AppScope::Singleplayer);
+    scope.set(AppScope::Host);
 
-    // Create Entities mit Tag
+    // Create Entities with Tag
     let server_entity = commands
         .spawn((Name::new("Local Server"), LocalSession))
         .id();
@@ -166,23 +184,20 @@ pub fn on_start_singleplayer(
     // Connect them via ChannelIo
     commands.queue(ChannelIo::open(server_entity, client_entity));
 
-    // Singleplayer is instant (no handshake delay in channel io usually)
-    sp_state.set(SingleplayerState::Running);
+    // Host mode is active immediately (no handshake delay in channel io usually)
+    host_state.set(HostState::Running);
 }
 
-// Stoppt den Singleplayer und räumt auf
-pub fn on_stop_singleplayer(
-    _: On<StopSingleplayer>,
+// Stops the Host mode and cleans up
+pub fn on_stop_host(
+    _: On<RequestStopHost>,
     mut commands: Commands,
-    mut scope: ResMut<NextState<AppScope>>, // Scope direkt ändern
+    mut scope: ResMut<NextState<AppScope>>,
     sessions: Query<Entity, With<Session>>,
     local_sessions: Query<Entity, With<LocalSession>>,
 ) {
-    // State setzen ist hier eher kosmetisch, da wir sofort ins MainMenu springen,
-    // aber es ist gut für die Event-Chain.
-
-    info!("Stopping Singleplayer: Cleaning up entities...");
-    // Wir sammeln erst alle Entities, um Dopplungen zu vermeiden
+    info!("Stopping Host: Cleaning up entities...");
+    // Collect entities to avoid duplicates
     let mut entities_to_despawn = std::collections::HashSet::new();
     for e in &sessions {
         entities_to_despawn.insert(e);
@@ -197,51 +212,52 @@ pub fn on_stop_singleplayer(
         }
     }
 
-    // Cleanup fertig (synchron) -> Zurück ins Hauptmenü
-    scope.set(AppScope::MainMenu);
+    // Return to Menu
+    scope.set(AppScope::Menu);
 }
 
-pub fn on_lan_going_public(
-    _: On<SingleplayerGoingPublic>,
-    mut lan_state: ResMut<NextState<OpenToLANState>>,
+pub fn on_open_server(
+    _: On<RequestOpenServer>,
+    mut visibility: ResMut<NextState<ServerVisibility>>,
 ) {
-    lan_state.set(OpenToLANState::GoingPublic);
+    visibility.set(ServerVisibility::Opening);
 }
 
-pub fn on_lan_going_private(
-    _: On<SingleplayerGoingPrivate>,
-    mut lan_state: ResMut<NextState<OpenToLANState>>,
+pub fn on_close_server(
+    _: On<RequestCloseServer>,
+    mut visibility: ResMut<NextState<ServerVisibility>>,
 ) {
-    lan_state.set(OpenToLANState::GoingPrivate);
+    visibility.set(ServerVisibility::Closing);
 }
 
-pub fn on_reset_to_menu(_: On<ResetToMainMenu>, mut scope: ResMut<NextState<AppScope>>) {
-    scope.set(AppScope::MainMenu);
+pub fn on_reset_to_menu(_: On<RequestResetToMenu>, mut scope: ResMut<NextState<AppScope>>) {
+    scope.set(AppScope::Menu);
 }
 
 // --- AERONET OBSERVERS ---
 
-// Wenn Aeronet eine Session anlegt (Handshake start)
-fn on_client_connecting(
+// When Aeronet creates a session (Handshake start)
+fn on_client_session_connecting(
     _trigger: On<Add, SessionEndpoint>,
-    mut state: ResMut<NextState<ConnectToServerState>>,
+    mut state: ResMut<NextState<ClientState>>,
 ) {
-    state.set(ConnectToServerState::Connecting);
+    state.set(ClientState::Connecting);
 }
 
-// Wenn Handshake erfolgreich
-fn on_client_connected(
+// When Handshake successful
+fn on_client_session_connected(
     _trigger: On<Add, Session>,
-    mut state: ResMut<NextState<ConnectToServerState>>,
+    mut state: ResMut<NextState<ClientState>>,
 ) {
     info!("Aeronet: Connected!");
-    state.set(ConnectToServerState::Connected);
+    state.set(ClientState::Connected);
 }
 
-// Wenn Verbindung abbricht
-fn on_client_disconnected(
+// When connection drops
+fn on_client_session_disconnected(
     trigger: On<Disconnected>,
-    mut state: ResMut<NextState<ConnectToServerState>>,
+    mut commands: Commands,
+    mut state: ResMut<NextState<ClientState>>,
     mut err: ResMut<ErrorMessage>,
     mut app_scope: ResMut<NextState<AppScope>>,
 ) {
@@ -250,18 +266,23 @@ fn on_client_disconnected(
 
     match reason {
         DisconnectReason::ByUser(_) => {
-            // Gewollter Disconnect -> Zurück ins Main Menu
-            app_scope.set(AppScope::MainMenu);
+            // Intentional Disconnect -> Return to Menu
+            app_scope.set(AppScope::Menu);
         }
         _ => {
-            // Fehler -> Fehler Screen
+            // Error -> Error Screen
             err.0 = format!("{:?}", reason);
-            state.set(ConnectToServerState::Failed);
+            state.set(ClientState::Failed);
+
+            // FIX: Mark for cleanup instead of immediate despawn.
+            // This gives the backend one frame to process the event/disconnect state
+            // before we hard-kill the entity.
+            commands.entity(trigger.entity).insert(CleanupPending);
         }
     }
 }
 
-// --- SIMULATION SYSTEMS (nur noch Host Logic) ---
+// --- SIMULATION SYSTEMS (Host Logic) ---
 
 fn on_webtransport_session_request(mut trigger: On<SessionRequest>, clients: Query<&ChildOf>) {
     let client = trigger.event_target();
@@ -277,16 +298,16 @@ fn on_webtransport_session_request(mut trigger: On<SessionRequest>, clients: Que
     trigger.respond(SessionResponse::Accepted);
 }
 
-// System zum Starten des WebTransport Servers
-pub fn on_going_public(
+// System to start the WebTransport Server
+pub fn perform_open_server(
     mut commands: Commands,
     mut lan_server_info: ResMut<LanServerInfo>,
     config: Res<ConnectionConfig>,
-    mut next_lan_state: ResMut<NextState<OpenToLANState>>,
+    mut next_visibility: ResMut<NextState<ServerVisibility>>,
     mut error_msg: ResMut<ErrorMessage>,
     existing_server: Query<Entity, With<WebTransportServer>>,
 ) {
-    // Falls schon ein Server läuft, diesen zuerst schließen
+    // If a server is already running, close it first
     for entity in &existing_server {
         commands.entity(entity).despawn();
     }
@@ -297,13 +318,13 @@ pub fn on_going_public(
     });
     let listen_address = format!("0.0.0.0:{}", port);
 
-    // Selbst-signiertes Zertifikat generieren
+    // Generate self-signed certificate
     let identity = match Identity::self_signed(["localhost"]) {
         Ok(id) => id,
         Err(e) => {
             error!("Failed to generate identity: {}", e);
             error_msg.0 = format!("Cert Error: {}", e);
-            next_lan_state.set(OpenToLANState::Failed);
+            next_visibility.set(ServerVisibility::Failed);
             return;
         }
     };
@@ -325,22 +346,22 @@ pub fn on_going_public(
         .spawn(Name::new("WebTransport Server"))
         .queue(WebTransportServer::open(server_config));
 
-    // Erfolg!
-    next_lan_state.set(OpenToLANState::Public);
+    // Success!
+    next_visibility.set(ServerVisibility::Public);
 }
 
-// System zum Stoppen des WebTransport Servers
-pub fn on_going_private(
+// System to stop the WebTransport Server
+pub fn perform_close_server(
     mut commands: Commands,
     server_query: Query<Entity, With<WebTransportServer>>,
-    mut lan_server_info: ResMut<LanServerInfo>, // Info beim Stoppen leeren
-    mut next_lan_state: ResMut<NextState<OpenToLANState>>,
+    mut lan_server_info: ResMut<LanServerInfo>, // Clear info on stop
+    mut next_visibility: ResMut<NextState<ServerVisibility>>,
 ) {
     for entity in &server_query {
-        commands.entity(entity).despawn(); // Server schließen durch Despawn
+        commands.entity(entity).despawn();
     }
     lan_server_info.address = String::default();
     lan_server_info.cert_hash = String::default();
 
-    next_lan_state.set(OpenToLANState::Private);
+    next_visibility.set(ServerVisibility::Local);
 }

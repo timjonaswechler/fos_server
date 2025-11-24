@@ -20,22 +20,22 @@ fn ui_example_system(
     mut commands: Commands,
     mut egui: EguiContexts,
     app_scope: Res<State<AppScope>>,
-    singleplayer_state: Option<Res<State<SingleplayerState>>>,
-    open_to_lan_state: Option<Res<State<OpenToLANState>>>,
-    connect_state: Option<Res<State<ConnectToServerState>>>,
+    host_state: Option<Res<State<HostState>>>,
+    server_visibility: Option<Res<State<ServerVisibility>>>,
+    client_state: Option<Res<State<ClientState>>>,
     error_msg: Res<ErrorMessage>,
     mut config: ResMut<ConnectionConfig>, // Neu: Zugriff auf Config
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("Host Client Status").show(egui.ctx_mut()?, |ui| match app_scope.get() {
-        AppScope::MainMenu => ui_main_menu(ui, &mut commands, &mut config),
+        AppScope::Menu => ui_main_menu(ui, &mut commands, &mut config),
 
-        AppScope::Singleplayer => {
-            if let (Some(sp_state), Some(lan_state)) = (singleplayer_state, open_to_lan_state) {
-                ui_singleplayer(
+        AppScope::Host => {
+            if let (Some(h_state), Some(vis_state)) = (host_state, server_visibility) {
+                ui_host(
                     ui,
                     &mut commands,
-                    sp_state.get(),
-                    lan_state.get(),
+                    h_state.get(),
+                    vis_state.get(),
                     &error_msg.0,
                     &mut config, // Neu
                 );
@@ -43,8 +43,8 @@ fn ui_example_system(
         }
 
         AppScope::Client => {
-            if let Some(conn_state) = connect_state {
-                ui_client(ui, &mut commands, conn_state.get(), &error_msg.0);
+            if let Some(c_state) = client_state {
+                ui_client(ui, &mut commands, c_state.get(), &error_msg.0);
             }
         }
     });
@@ -53,82 +53,82 @@ fn ui_example_system(
 
 fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut ConnectionConfig) {
     ui.heading("Main Menu");
-    if ui.button("Start Singleplayer").clicked() {
-        commands.trigger(StartSingleplayer);
+    if ui.button("Start Host").clicked() {
+        commands.trigger(RequestStartHost);
     }
-    
+
     ui.separator();
     ui.horizontal(|ui| {
         ui.label("Target IP:");
         ui.text_edit_singleline(&mut config.target_ip);
     });
-    
+
     if ui.button("Connect to Server").clicked() {
-        commands.trigger(StartConnection);
+        commands.trigger(RequestConnect);
     }
 }
 
-fn ui_singleplayer(
+fn ui_host(
     ui: &mut egui::Ui,
     commands: &mut Commands,
-    sp_state: &SingleplayerState,
-    lan_state: &OpenToLANState,
+    h_state: &HostState,
+    vis_state: &ServerVisibility,
     error_text: &str,
     config: &mut ConnectionConfig, // Neu
 ) {
-    ui.heading("Singleplayer Mode");
+    ui.heading("Host Mode");
 
-    // Globaler Singleplayer Fehler (z.B. Crash beim Start)
-    if *sp_state == SingleplayerState::Failed {
+    // Global Host Error (e.g. Crash on start)
+    if *h_state == HostState::Failed {
         ui.colored_label(egui::Color32::RED, format!("Error: {}", error_text));
         if ui.button("Back to Menu").clicked() {
-            commands.trigger(ResetToMainMenu);
+            commands.trigger(RequestResetToMenu);
         }
-        return; // Keine weiteren Controls anzeigen
+        return; // Do not show further controls
     }
 
-    ui.label(format!("State: {:?}", sp_state));
+    ui.label(format!("State: {:?}", h_state));
 
-    match sp_state {
-        SingleplayerState::Starting => {
+    match h_state {
+        HostState::Starting => {
             ui.spinner();
             ui.label("Initializing World...");
         }
-        SingleplayerState::Running => {
+        HostState::Running => {
             ui.separator();
 
-            // LAN Status Behandlung
-            if *lan_state == OpenToLANState::Failed {
-                ui.colored_label(egui::Color32::RED, format!("LAN Error: {}", error_text));
-                if ui.button("Acknowledge (Reset to Private)").clicked() {
-                    // Wir resetten den LAN Status, aber bleiben im Singleplayer
-                    commands.trigger(SingleplayerGoingPrivate);
+            // Server Visibility Status Handling
+            if *vis_state == ServerVisibility::Failed {
+                ui.colored_label(egui::Color32::RED, format!("Server Visibility Error: {}", error_text));
+                if ui.button("Acknowledge (Reset to Local)").clicked() {
+                    // We reset the visibility status, but stay in Host mode
+                    commands.trigger(RequestCloseServer);
                 }
             } else {
-                ui.label(format!("LAN: {:?}", lan_state));
-                match lan_state {
-                    OpenToLANState::Private => {
+                ui.label(format!("Visibility: {:?}", vis_state));
+                match vis_state {
+                    ServerVisibility::Local => {
                         ui.horizontal(|ui| {
                             ui.label("Port:");
                             ui.text_edit_singleline(&mut config.lan_port);
                         });
-                        if ui.button("Go Public (LAN)").clicked() {
-                            commands.trigger(SingleplayerGoingPublic);
+                        if ui.button("Open to Public (LAN)").clicked() {
+                            commands.trigger(RequestOpenServer);
                         }
                     }
-                    OpenToLANState::GoingPublic => {
+                    ServerVisibility::Opening => {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label("Opening Ports...");
                         });
                     }
-                    OpenToLANState::Public => {
+                    ServerVisibility::Public => {
                         ui.label("Server is visible on LAN");
-                        if ui.button("Go Private").clicked() {
-                            commands.trigger(SingleplayerGoingPrivate);
+                        if ui.button("Close (Go Private)").clicked() {
+                            commands.trigger(RequestCloseServer);
                         }
                     }
-                    OpenToLANState::GoingPrivate => {
+                    ServerVisibility::Closing => {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label("Closing Ports...");
@@ -139,11 +139,11 @@ fn ui_singleplayer(
             }
 
             ui.separator();
-            if ui.button("Stop Singleplayer").clicked() {
-                commands.trigger(StopSingleplayer);
+            if ui.button("Stop Host").clicked() {
+                commands.trigger(RequestStopHost);
             }
         }
-        SingleplayerState::Closing => {
+        HostState::Stopping => {
             ui.spinner();
             ui.label("Saving & Shutting down...");
         }
@@ -154,38 +154,38 @@ fn ui_singleplayer(
 fn ui_client(
     ui: &mut egui::Ui,
     commands: &mut Commands,
-    state: &ConnectToServerState,
+    state: &ClientState,
     error_text: &str,
 ) {
     ui.heading("Client Mode");
 
     match state {
-        ConnectToServerState::Connecting => {
+        ClientState::Connecting => {
             ui.spinner();
             ui.label("Connecting to server...");
         }
-        ConnectToServerState::Connected => {
+        ClientState::Connected => {
             ui.label("Status: Connected");
             ui.label("Ping: 24ms");
             if ui.button("Disconnect").clicked() {
-                commands.trigger(DisconnectFromServer);
+                commands.trigger(RequestDisconnect);
             }
         }
-        ConnectToServerState::Disconnecting => {
+        ClientState::Disconnecting => {
             ui.spinner();
             ui.label("Disconnecting...");
         }
-        ConnectToServerState::Failed => {
+        ClientState::Failed => {
             ui.colored_label(
                 egui::Color32::RED,
                 format!("Connection Failed: {}", error_text),
             );
             ui.horizontal(|ui| {
                 if ui.button("Retry").clicked() {
-                    commands.trigger(RetryConnection);
+                    commands.trigger(RequestRetryConnect);
                 }
                 if ui.button("Back to Menu").clicked() {
-                    commands.trigger(ResetToMainMenu);
+                    commands.trigger(RequestResetToMenu);
                 }
             });
         }
