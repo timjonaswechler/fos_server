@@ -18,5 +18,4 @@ aeronet_io = { workspace = true }
 aeronet_channel = { workspace = true }
 aeronet_replicon = { workspace = true }
 aeronet_transport = { workspace = true }
-aeronet_websocket = { workspace = true }
-aeronet_webtransport = { workspace = true ,features = ["client","server"]}
+aeronet_webtransport = { workspace = true ,features = ["client","server", "dangerous-configuration"]}
