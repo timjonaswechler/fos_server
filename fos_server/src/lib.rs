@@ -1,4 +1,5 @@
 use {
+    aeronet_channel::{ChannelIo, ChannelIoPlugin},
     aeronet_io::{
         connection::{Disconnect, DisconnectReason, Disconnected},
         Session, SessionEndpoint,
@@ -12,22 +13,18 @@ pub struct FOSServerPlugin;
 
 impl Plugin for FOSServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(WebTransportClientPlugin) // Aeronet Plugin
+        app.add_plugins((WebTransportClientPlugin, ChannelIoPlugin))
             .init_state::<AppScope>()
             .init_resource::<FakeLoadingTimer>()
             .init_resource::<ErrorMessage>()
-            .init_resource::<ConnectionConfig>() // Neu: Config für IP/Port
+            .init_resource::<ConnectionConfig>()
             .add_sub_state::<SingleplayerState>()
             .add_sub_state::<OpenToLANState>()
             .add_sub_state::<ConnectToServerState>()
-            // --- Simulation Logic (Singleplayer Only) ---
+            // --- Simulation Logic (LAN Only) ---
             .add_systems(
                 Update,
-                simulate_singleplayer_starting.run_if(in_state(SingleplayerState::Starting)),
-            )
-            .add_systems(
-                Update,
-                simulate_singleplayer_closing.run_if(in_state(SingleplayerState::Closing)),
+                finish_singleplayer_closing.run_if(in_state(SingleplayerState::Closing)),
             )
             .add_systems(
                 Update,
@@ -37,13 +34,12 @@ impl Plugin for FOSServerPlugin {
                 Update,
                 simulate_going_private.run_if(in_state(OpenToLANState::GoingPrivate)),
             )
-            // (Client Simulation entfernt)
             // --- Observers (UI Events) ---
             .add_observer(on_start_singleplayer)
             .add_observer(on_stop_singleplayer)
             .add_observer(on_lan_going_public)
             .add_observer(on_lan_going_private)
-            .add_observer(on_start_connection) // Startet jetzt echten Connect
+            .add_observer(on_start_connection)
             .add_observer(on_disconnect_from_server)
             .add_observer(on_retry_connection)
             .add_observer(on_reset_to_menu)
@@ -53,6 +49,8 @@ impl Plugin for FOSServerPlugin {
             .add_observer(on_client_disconnected);
     }
 }
+
+// ... (Resources unchanged) ...
 
 #[derive(Resource)]
 pub struct ConnectionConfig {
@@ -144,22 +142,34 @@ pub struct ResetToMainMenu;
 
 // --- OBSERVERS (Logik) ---
 
+// Startet den Singleplayer mit ChannelIO
 pub fn on_start_singleplayer(
     _: On<StartSingleplayer>,
+    mut commands: Commands,
     mut scope: ResMut<NextState<AppScope>>,
-    mut timer: ResMut<FakeLoadingTimer>,
+    mut sp_state: ResMut<NextState<SingleplayerState>>,
 ) {
     scope.set(AppScope::Singleplayer);
-    timer.start(1.5);
+
+    // Create Entities
+    let server_entity = commands.spawn(Name::new("Local Server")).id();
+    let client_entity = commands.spawn(Name::new("Local Client")).id();
+
+    // Connect them via ChannelIo
+    commands.queue(ChannelIo::open(server_entity, client_entity));
+
+    // Singleplayer is instant (no handshake delay in channel io usually)
+    sp_state.set(SingleplayerState::Running);
 }
 
+// Stoppt den Singleplayer und räumt auf
 pub fn on_stop_singleplayer(
     _: On<StopSingleplayer>,
     mut sp_state: ResMut<NextState<SingleplayerState>>,
     mut timer: ResMut<FakeLoadingTimer>,
 ) {
     sp_state.set(SingleplayerState::Closing);
-    timer.start(1.0);
+    timer.start(0.5); // Kurze Pause für "Shutting down..." UI Feedback
 }
 
 pub fn on_lan_going_public(
@@ -277,34 +287,27 @@ fn on_client_disconnected(
 
 // --- SIMULATION SYSTEMS (nur noch Host Logic) ---
 
-pub fn simulate_singleplayer_starting(
-    time: Res<Time>,
-    mut timer: ResMut<FakeLoadingTimer>,
-    mut next: ResMut<NextState<SingleplayerState>>,
-    mut err: ResMut<ErrorMessage>,
-) {
-    timer.0.tick(time.delta());
-    if timer.0.is_finished() {
-        // 10% Chance auf Fehler
-        if rand::thread_rng().gen_bool(0.1) {
-            err.0 = "Failed to bind port 8080".to_string();
-            next.set(SingleplayerState::Failed);
-        } else {
-            next.set(SingleplayerState::Running);
-        }
-    }
-}
-
-pub fn simulate_singleplayer_closing(
+pub fn finish_singleplayer_closing(
     time: Res<Time>,
     mut timer: ResMut<FakeLoadingTimer>,
     mut next_scope: ResMut<NextState<AppScope>>,
     mut next_lan: ResMut<NextState<OpenToLANState>>,
+    mut commands: Commands,
+    // Cleanup Queries
+    sessions: Query<Entity, With<Session>>,
 ) {
     timer.0.tick(time.delta());
+
+    // Force LAN Private
     next_lan.set(OpenToLANState::Private);
 
     if timer.0.is_finished() {
+        // Cleanup Real Entities
+        for entity in &sessions {
+            // Wir könnten filtern nach "Local Server/Client", aber im Singleplayer ist alles weg
+            commands.entity(entity).despawn();
+        }
+
         next_scope.set(AppScope::MainMenu);
     }
 }
