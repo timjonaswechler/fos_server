@@ -21,11 +21,6 @@ impl Plugin for FOSServerPlugin {
             .add_sub_state::<SingleplayerState>()
             .add_sub_state::<OpenToLANState>()
             .add_sub_state::<ConnectToServerState>()
-            // --- Simulation Logic (LAN Only) ---
-            .add_systems(
-                Update,
-                finish_singleplayer_closing.run_if(in_state(SingleplayerState::Closing)),
-            )
             .add_systems(
                 Update,
                 simulate_going_public.run_if(in_state(OpenToLANState::GoingPublic)),
@@ -37,6 +32,7 @@ impl Plugin for FOSServerPlugin {
             // --- Observers (UI Events) ---
             .add_observer(on_start_singleplayer)
             .add_observer(on_stop_singleplayer)
+            .add_systems(OnEnter(SingleplayerState::Closing), on_enter_closing) // Neu: Cleanup Observer
             .add_observer(on_lan_going_public)
             .add_observer(on_lan_going_private)
             .add_observer(on_start_connection)
@@ -142,6 +138,10 @@ pub struct ResetToMainMenu;
 
 // --- OBSERVERS (Logik) ---
 
+// Component zum Markieren von lokalen Sessions für einfaches Cleanup
+#[derive(Component)]
+pub struct LocalSession;
+
 // Startet den Singleplayer mit ChannelIO
 pub fn on_start_singleplayer(
     _: On<StartSingleplayer>,
@@ -151,9 +151,13 @@ pub fn on_start_singleplayer(
 ) {
     scope.set(AppScope::Singleplayer);
 
-    // Create Entities
-    let server_entity = commands.spawn(Name::new("Local Server")).id();
-    let client_entity = commands.spawn(Name::new("Local Client")).id();
+    // Create Entities mit Tag
+    let server_entity = commands
+        .spawn((Name::new("Local Server"), LocalSession))
+        .id();
+    let client_entity = commands
+        .spawn((Name::new("Local Client"), LocalSession))
+        .id();
 
     // Connect them via ChannelIo
     commands.queue(ChannelIo::open(server_entity, client_entity));
@@ -165,11 +169,38 @@ pub fn on_start_singleplayer(
 // Stoppt den Singleplayer und räumt auf
 pub fn on_stop_singleplayer(
     _: On<StopSingleplayer>,
+    mut commands: Commands,
     mut sp_state: ResMut<NextState<SingleplayerState>>,
-    mut timer: ResMut<FakeLoadingTimer>,
+    sessions: Query<Entity, With<Session>>,
+    local_sessions: Query<Entity, With<LocalSession>>,
 ) {
     sp_state.set(SingleplayerState::Closing);
-    timer.start(0.5); // Kurze Pause für "Shutting down..." UI Feedback
+    info!("Stopping Singleplayer: Cleaning up entities...");
+    // Wir sammeln erst alle Entities, um Dopplungen zu vermeiden
+    // (falls eine Entity zufällig Session UND LocalSession hat)
+    let mut entities_to_despawn = std::collections::HashSet::new();
+    for e in &sessions {
+        entities_to_despawn.insert(e);
+    }
+    for e in &local_sessions {
+        entities_to_despawn.insert(e);
+    }
+
+    for entity in entities_to_despawn {
+        // Prüfen ob Entity noch existiert, bevor wir despawnen
+        // (verhindert Warnungen im Log)
+        if let Ok(mut entity_cmd) = commands.get_entity(entity) {
+            entity_cmd.despawn();
+        }
+    }
+}
+
+// Cleanup sofort beim Wechsel in 'Closing'
+pub fn on_enter_closing(
+    mut commands: Commands,
+    sessions: Query<Entity, With<Session>>,
+    local_sessions: Query<Entity, With<LocalSession>>,
+) {
 }
 
 pub fn on_lan_going_public(
@@ -228,16 +259,15 @@ pub fn on_retry_connection(
     mut commands: Commands,
     mut conn_state: ResMut<NextState<ConnectToServerState>>,
     config: Res<ConnectionConfig>,
-    // Query für existierende (evtl. tote) Sessions oder Endpoints
+    // Cleanup alter Versuche
     old_sessions: Query<Entity, Or<(With<Session>, With<SessionEndpoint>)>>,
 ) {
-    // Cleanup: Alte Versuche löschen, bevor wir neu starten
     for entity in &old_sessions {
-        commands.entity(entity).despawn_recursive();
+        commands.entity(entity).despawn();
     }
 
     conn_state.set(ConnectToServerState::Connecting);
-    
+
     // Retry = Connect again
     let client_config = ClientConfig::default();
     let target_url = format!("https://{}", config.target_ip);
@@ -294,31 +324,6 @@ fn on_client_disconnected(
 }
 
 // --- SIMULATION SYSTEMS (nur noch Host Logic) ---
-
-pub fn finish_singleplayer_closing(
-    time: Res<Time>,
-    mut timer: ResMut<FakeLoadingTimer>,
-    mut next_scope: ResMut<NextState<AppScope>>,
-    mut next_lan: ResMut<NextState<OpenToLANState>>,
-    mut commands: Commands,
-    // Cleanup Queries
-    sessions: Query<Entity, With<Session>>,
-) {
-    timer.0.tick(time.delta());
-
-    // Force LAN Private
-    next_lan.set(OpenToLANState::Private);
-
-    if timer.0.is_finished() {
-        // Cleanup Real Entities
-        for entity in &sessions {
-            // Wir könnten filtern nach "Local Server/Client", aber im Singleplayer ist alles weg
-            commands.entity(entity).despawn();
-        }
-
-        next_scope.set(AppScope::MainMenu);
-    }
-}
 
 pub fn simulate_going_public(
     time: Res<Time>,
