@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-// --- EVENTS (Requests) ---
+// --- EVENTS (User Requests) ---
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct RequestHostStart;

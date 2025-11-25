@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, States)]
+#[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash, Reflect)]
 pub enum AppScope {
     #[default]
     Menu,
@@ -8,7 +8,7 @@ pub enum AppScope {
     Client,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
 #[source(AppScope = AppScope::Host)]
 pub enum HostState {
     #[default]
@@ -18,18 +18,18 @@ pub enum HostState {
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
 #[source(AppScope = AppScope::Host)]
 pub enum ServerVisibility {
     #[default]
     Local,
-    Opening,
+    GoingPublic,
     Public,
-    Closing,
+    GoingPrivate,
     Failed,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
 #[source(AppScope = AppScope::Client)]
 pub enum ClientState {
     #[default]

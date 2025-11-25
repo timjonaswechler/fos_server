@@ -9,8 +9,7 @@ repository.workspace = true
 [dependencies]
 # general
 bevy = { workspace = true }
-bevy_egui = { workspace = true }
-bevy-inspector-egui = "0.35"
+
 rand = "0.8"
 wtransport = "0.6"
 
@@ -21,3 +20,7 @@ aeronet_channel = { workspace = true }
 aeronet_replicon = { workspace = true }
 aeronet_transport = { workspace = true }
 aeronet_webtransport = { workspace = true ,features = ["client","server", "dangerous-configuration"]}
+
+# debug
+bevy_egui = { workspace = true }
+bevy-inspector-egui = "0.35"

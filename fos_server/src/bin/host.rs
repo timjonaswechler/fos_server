@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use fos_server::*;
+use fos_server::{events::*, states::*, *};
 
 fn main() -> AppExit {
     App::new()
@@ -30,10 +30,11 @@ fn ui_example_system(
     server_visibility: Option<Res<State<ServerVisibility>>>,
     client_state: Option<Res<State<ClientState>>>,
     error_msg: Res<ErrorMessage>,
-    mut config: ResMut<ConnectionConfig>, // Neu: Zugriff auf Config
+    mut host_config: ResMut<HostServerConfig>,
+    mut client_config: ResMut<ClientConnectionConfig>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("Host Client Status").show(egui.ctx_mut()?, |ui| match app_scope.get() {
-        AppScope::Menu => ui_main_menu(ui, &mut commands, &mut config),
+        AppScope::Menu => ui_main_menu(ui, &mut commands, &mut client_config),
 
         AppScope::Host => {
             if let (Some(h_state), Some(vis_state)) = (host_state, server_visibility) {
@@ -43,7 +44,7 @@ fn ui_example_system(
                     h_state.get(),
                     vis_state.get(),
                     &error_msg.0,
-                    &mut config, // Neu
+                    &mut host_config,
                 );
             }
         }
@@ -57,7 +58,7 @@ fn ui_example_system(
     Ok(())
 }
 
-fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut ConnectionConfig) {
+fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut ClientConnectionConfig) {
     ui.heading("Main Menu");
     if ui.button("Start Host").clicked() {
         commands.trigger(RequestHostStart);
@@ -66,7 +67,9 @@ fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut Connect
     ui.separator();
     ui.horizontal(|ui| {
         ui.label("Target IP:");
-        ui.text_edit_singleline(&mut config.target_ip);
+        ui.text_edit_singleline(&mut config.address);
+        ui.label("Target Port:");
+        ui.text_edit_singleline(&mut config.port);
     });
 
     if ui.button("Connect to Server").clicked() {
@@ -80,7 +83,7 @@ fn ui_host(
     h_state: &HostState,
     vis_state: &ServerVisibility,
     error_text: &str,
-    config: &mut ConnectionConfig, // Neu
+    config: &mut HostServerConfig,
 ) {
     ui.heading("Host Mode");
 
@@ -119,13 +122,13 @@ fn ui_host(
                     ServerVisibility::Local => {
                         ui.horizontal(|ui| {
                             ui.label("Port:");
-                            ui.text_edit_singleline(&mut config.lan_port);
+                            ui.text_edit_singleline(&mut config.port);
                         });
                         if ui.button("Open to Public (LAN)").clicked() {
                             commands.trigger(RequestHostGoPublic);
                         }
                     }
-                    ServerVisibility::Opening => {
+                    ServerVisibility::GoingPublic => {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label("Opening Ports...");
@@ -137,7 +140,7 @@ fn ui_host(
                             commands.trigger(RequestHostGoPrivate);
                         }
                     }
-                    ServerVisibility::Closing => {
+                    ServerVisibility::GoingPrivate => {
                         ui.horizontal(|ui| {
                             ui.spinner();
                             ui.label("Closing Ports...");
