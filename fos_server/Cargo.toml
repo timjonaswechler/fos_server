@@ -10,6 +10,7 @@ repository.workspace = true
 # general
 bevy = { workspace = true }
 bevy_egui = { workspace = true }
+bevy-inspector-egui = "0.35"
 rand = "0.8"
 wtransport = "0.6"
 
