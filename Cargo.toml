@@ -1,15 +1,13 @@
-[workspace]
-members = ["fos_server"]
-resolver = "2"
 
-[workspace.package]
+[package]
+name = "fos_server"
 version = "0.1.0"
 edition = "2021"
 authors = ["Tim-Jonas Wechler"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/timjonaswechler/fos_server"
 
-[workspace.dependencies]
+[dependencies]
 # general
 bevy = { version = "0.17.2"  }
 
