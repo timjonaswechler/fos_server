@@ -23,3 +23,4 @@ target
 # Runtime settings directories
 .DS_Store
 Cargo.lock
+.zed
