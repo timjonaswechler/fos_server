@@ -56,8 +56,7 @@ impl Plugin for FOSServerPlugin {
             Update,
             on_host_running_private
                 .run_if(in_state(ServerVisibility::Local))
-                .run_if(in_state(HostState::Running))
-                .run_if(in_state(AppScope::Host)),
+                .run_if(in_state(HostState::Running)),
         )
         .add_systems(
             Update,
@@ -69,22 +68,17 @@ impl Plugin for FOSServerPlugin {
             Update,
             on_host_going_public
                 .run_if(in_state(ServerVisibility::GoingPublic))
-                .run_if(in_state(HostState::Running))
-                .run_if(in_state(AppScope::Host)),
+                .run_if(in_state(HostState::Running)),
         )
         .add_systems(
             Update,
             (on_host_running_public)
                 .run_if(in_state(ServerVisibility::Public))
-                .run_if(in_state(HostState::Running))
-                .run_if(in_state(AppScope::Host)),
+                .run_if(in_state(HostState::Running)),
         )
         .add_systems(
             Update,
-            on_host_going_private
-                .run_if(in_state(ServerVisibility::GoingPrivate))
-                .run_if(in_state(HostState::Running))
-                .run_if(in_state(AppScope::Host)),
+            on_host_going_private.run_if(in_state(ServerVisibility::GoingPrivate)),
         )
         .add_systems(
             Update,
