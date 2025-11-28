@@ -6,17 +6,13 @@ use {
     aeronet_channel::ChannelIo,
     aeronet_io::{
         connection::Disconnect,
-        server::{Close, Closed, Server},
+        server::{Close, Server},
     },
     aeronet_webtransport::{
         cert,
         server::{ServerConfig, WebTransportServer, WebTransportServerClient},
-        wtransport::Identity,
     },
-    bevy::{
-        ecs::error::{info, warn},
-        prelude::*,
-    },
+    bevy::prelude::*,
     core::time::Duration,
 };
 
@@ -43,8 +39,8 @@ pub fn on_host_starting(
 }
 
 pub fn on_host_running_private(
-    mut commands: Commands,
-    mut next_state: ResMut<NextState<HostState>>,
+    mut _commands: Commands,
+    mut _next_state: ResMut<NextState<HostState>>,
 ) {
     // Initialize the server state
 }
@@ -89,48 +85,42 @@ pub fn on_host_going_public(
     server_query: Query<Entity, With<WebTransportServer>>,
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
-    // if server_query.is_empty() {
-    let port: u16 = host_server_info.port.parse().unwrap_or_else(|_| {
-        // TODO: ErrorMessage Event
-        warn!("Invalid LAN port, using default 25565");
-        25565
-    });
-    let listen_address = format!("0.0.0.0:{}", port);
+    
+    if server_query.is_empty() {
+        let identity = aeronet_webtransport::wtransport::Identity::self_signed([
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        ])
+        .expect("all given SANs should be valid DNS names");
+        let cert = &identity.certificate_chain().as_slice()[0];
+        let spki_fingerprint =
+            cert::spki_fingerprint_b64(cert).expect("should be a valid certificate");
+        let cert_hash = cert::hash_to_b64(cert.hash());
+        info!("************************");
+        info!("SPKI FINGERPRINT");
+        info!("  {spki_fingerprint}");
+        info!("CERTIFICATE HASH");
+        info!("  {cert_hash}");
+        info!("************************");
 
-    // Generate self-signed certificate
-    let identity = match Identity::self_signed(["localhost"]) {
-        Ok(id) => id,
-        Err(e) => {
-            error!("Failed to generate identity: {}", e);
-            error_msg.0 = format!("Cert Error: {}", e);
-            next_state.set(ServerVisibility::Failed);
-            return;
-        }
-    };
-
-    let cert = &identity.certificate_chain().as_slice()[0];
-    let spki_fingerprint = cert::spki_fingerprint_b64(cert).expect("should be a valid certificate");
-
-    info!("WebTransport Server SPKI fingerprint: {}", spki_fingerprint);
-
-    host_server_connection_config.address = listen_address.clone();
-    host_server_connection_config.cert_hash = spki_fingerprint;
-
-    let server_config = ServerConfig::builder()
-        .with_bind_default(port)
-        .with_identity(identity)
-        .build();
-
-    commands
-        .spawn(Name::new("WebTransport Server"))
-        .queue(WebTransportServer::open(server_config));
-    // } else {
-    next_state.set(ServerVisibility::Public);
-    // }
+        let config = aeronet_webtransport::wtransport::ServerConfig::builder()
+            .with_bind_default(25571)
+            .with_identity(identity)
+            .keep_alive_interval(Some(Duration::from_secs(1)))
+            .max_idle_timeout(Some(Duration::from_secs(5)))
+            .expect("should be a valid idle timeout")
+            .build();
+        commands
+            .spawn(Name::new("WebTransportServer"))
+            .queue(WebTransportServer::open(config));
+    } else {
+        next_state.set(ServerVisibility::Public);
+    }
 }
 
 pub fn on_host_running_public(
-    mut commands: Commands,
+    mut _commands: Commands,
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
     // Initialize the server state
@@ -159,20 +149,23 @@ pub fn on_host_going_private(
 }
 
 pub fn on_client_connecting(
-    mut commands: Commands,
+    mut _commands: Commands,
     mut next_state: ResMut<NextState<ClientState>>,
 ) {
     // Initialize the server state
     next_state.set(ClientState::Connected);
 }
 
-pub fn on_client_connected(mut commands: Commands, mut next_state: ResMut<NextState<ClientState>>) {
+pub fn on_client_connected(
+    mut _commands: Commands,
+    mut next_state: ResMut<NextState<ClientState>>,
+) {
     // Initialize the server state
     next_state.set(ClientState::Connected);
 }
 
 pub fn on_client_disconnecting(
-    mut commands: Commands,
+    mut _commands: Commands,
     mut next_state: ResMut<NextState<AppScope>>,
 ) {
     // Initialize the server state
