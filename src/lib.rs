@@ -1,22 +1,19 @@
-pub mod events;
-mod observer;
+pub mod client;
+pub mod server;
+pub mod singleplayer;
 pub mod states;
-mod systems;
 
 #[cfg(debug_assertions)]
 use bevy_inspector_egui::quick::StateInspectorPlugin;
 
 use {
-    aeronet_channel::{ChannelDisconnected, ChannelIo, ChannelIoPlugin},
-    aeronet_webtransport::{
-        client::{WebTransportClient, WebTransportClientPlugin},
-        server::{WebTransportServer, WebTransportServerClient, WebTransportServerPlugin},
-    },
+    aeronet_channel::ChannelIoPlugin,
+    aeronet_webtransport::{client::WebTransportClientPlugin, server::WebTransportServerPlugin},
     bevy::prelude::*,
-    events::*,
-    observer::*,
+    client::*,
+    server::*,
+    singleplayer::*,
     states::*,
-    systems::*,
 };
 
 pub struct FOSServerPlugin;
@@ -29,82 +26,82 @@ impl Plugin for FOSServerPlugin {
             ChannelIoPlugin,
         ))
         .init_state::<AppScope>()
-        .add_sub_state::<HostState>()
+        .add_sub_state::<SingleplayerState>()
         .add_sub_state::<ServerVisibility>()
         .add_sub_state::<ClientState>()
         .init_resource::<ErrorMessage>()
-        .init_resource::<HostServerConfig>()
-        .init_resource::<HostServerConnectionConfig>()
+        .init_resource::<SingleplayerServerConfig>()
+        .init_resource::<SingleplayerServerConnectionConfig>()
         .init_resource::<ClientConnectionConfig>()
-        .add_observer(host_start)
-        .add_observer(host_stop)
-        .add_observer(host_go_public)
-        .add_observer(host_session_request)
-        .add_observer(host_go_private)
-        .add_observer(client_connect)
-        .add_observer(client_disconnect)
-        .add_observer(client_retry)
-        .add_observer(reset_to_menu)
+        .add_observer(on_singleplayer_starting)
+        .add_observer(on_singleplayer_ready)
+        .add_observer(on_singleplayer_pauseing)
+        .add_observer(on_singleplayer_unpauseing)
+        .add_observer(on_singleplayer_stopping)
+        .add_observer(on_singleplayer_stoped)
         .add_systems(
             Update,
-            on_host_starting
+            singleplayer_running
                 .run_if(in_state(ServerVisibility::Local))
-                .run_if(in_state(HostState::Starting))
-                .run_if(in_state(AppScope::Host)),
+                .run_if(in_state(SingleplayerState::Running)),
         )
         .add_systems(
             Update,
-            on_host_running_private
+            singleplayer_paused
                 .run_if(in_state(ServerVisibility::Local))
-                .run_if(in_state(HostState::Running)),
+                .run_if(in_state(SingleplayerState::Paused)),
         )
         .add_systems(
             Update,
-            on_host_stopping
-                .run_if(in_state(HostState::Stopping))
-                .run_if(in_state(AppScope::Host)),
+            singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
+        )
+        .add_observer(on_server_going_public)
+        .add_observer(on_server_going_private)
+        .add_observer(on_server_is_private)
+        // .add_observer(on_server_session_request)
+        // .add_observer(on_server_client_timeout)
+        // .add_observer(on_server_client_lost)
+        // .add_observer(on_server_client_graceful_disconnect)
+        // .add_observer(on_server_shutdown_notify_clients)
+        .add_systems(
+            Update,
+            server_is_public
+                .run_if(in_state(SingleplayerState::Running))
+                .run_if(in_state(ServerVisibility::GoingPublic)),
         )
         .add_systems(
             Update,
-            on_host_going_public
-                .run_if(in_state(ServerVisibility::GoingPublic))
-                .run_if(in_state(HostState::Running)),
-        )
-        .add_systems(
-            Update,
-            (on_host_running_public)
+            server_running
                 .run_if(in_state(ServerVisibility::Public))
-                .run_if(in_state(HostState::Running)),
+                .run_if(in_state(SingleplayerState::Running)),
         )
         .add_systems(
             Update,
-            on_host_going_private.run_if(in_state(ServerVisibility::GoingPrivate)),
+            server_going_private
+                .run_if(in_state(ServerVisibility::GoingPrivate))
+                .run_if(in_state(SingleplayerState::Running)),
+        )
+        .add_observer(on_client_connecting)
+        .add_observer(on_client_connected)
+        .add_observer(on_client_sync_complete)
+        // .add_observer(on_client_running)
+        // .add_observer(on_client_receive_disconnect)
+        .add_observer(on_client_disconnecting)
+        .add_systems(
+            Update,
+            client_discover_server.run_if(in_state(ClientState::Discovering)),
         )
         .add_systems(
             Update,
-            on_client_connecting
-                .run_if(in_state(ClientState::Connecting))
-                .run_if(in_state(AppScope::Client)),
-        )
-        .add_systems(
-            Update,
-            on_client_connected
-                .run_if(in_state(ClientState::Connected))
-                .run_if(in_state(AppScope::Client)),
-        )
-        .add_systems(
-            Update,
-            on_client_disconnecting
-                .run_if(in_state(ClientState::Disconnecting))
-                .run_if(in_state(AppScope::Client)),
+            client_syncing.run_if(in_state(ClientState::Syncing)),
         );
 
         #[cfg(debug_assertions)]
         {
             app.register_type::<AppScope>()
                 .add_plugins(StateInspectorPlugin::<AppScope>::default())
-                .register_type::<HostState>()
-                .add_plugins(StateInspectorPlugin::<HostState>::default())
+                .register_type::<SingleplayerState>()
+                .add_plugins(StateInspectorPlugin::<SingleplayerState>::default())
                 .register_type::<ServerVisibility>()
                 .add_plugins(StateInspectorPlugin::<ServerVisibility>::default())
                 .register_type::<ClientState>()
@@ -113,22 +110,40 @@ impl Plugin for FOSServerPlugin {
     }
 }
 
-#[derive(Resource, Default)]
-pub struct ErrorMessage(pub String);
-
 // Component to mark local sessions for easy cleanup
 #[derive(Component)]
 pub struct LocalSession;
 
+#[derive(Component)]
+pub struct LocalClient;
+
+#[derive(Component)]
+pub struct LocalServer;
+
+#[derive(Component)]
+pub struct LocalBot;
+
+#[derive(Component)]
+pub struct ClientConnection;
+
+#[derive(Resource, Default)]
+pub struct ErrorMessage(pub String);
+
+impl ErrorMessage {
+    pub fn new(msg: impl Into<String>) -> Self {
+        ErrorMessage(msg.into())
+    }
+}
+
 // Resource for LAN Server Details
 #[derive(Resource)]
-pub struct HostServerConfig {
+pub struct SingleplayerServerConfig {
     pub address: String,
     pub port: String,
     pub cert_hash: String,
 }
 
-impl Default for HostServerConfig {
+impl Default for SingleplayerServerConfig {
     fn default() -> Self {
         Self {
             address: "127.0.0.1".to_string(),
@@ -139,7 +154,7 @@ impl Default for HostServerConfig {
 }
 
 #[derive(Resource, Default)]
-pub struct HostServerConnectionConfig {
+pub struct SingleplayerServerConnectionConfig {
     pub address: String,
     pub cert_hash: String,
 }
@@ -160,6 +175,3 @@ impl Default for ClientConnectionConfig {
         }
     }
 }
-
-#[derive(Component)]
-pub struct ClientConnection;

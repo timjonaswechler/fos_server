@@ -24,3 +24,4 @@ aeronet_webtransport = { version = "0.17.2",features = ["client","server", "dang
 # debug
 bevy_egui = { version = "0.38.0" }
 bevy-inspector-egui = "0.35"
+anyhow = "1.0"

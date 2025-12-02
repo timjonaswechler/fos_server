@@ -4,37 +4,41 @@ use bevy::prelude::*;
 pub enum AppScope {
     #[default]
     Menu,
-    Host,
+    Singleplayer,
     Client,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(AppScope = AppScope::Host)]
-pub enum HostState {
+#[source(AppScope = AppScope::Singleplayer)]
+pub enum SingleplayerState {
     #[default]
     Starting,
     Running,
+    Paused,
     Stopping,
-    Failed,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(AppScope = AppScope::Host)]
+#[source(AppScope = AppScope::Singleplayer)]
 pub enum ServerVisibility {
     #[default]
     Local,
     GoingPublic,
     Public,
     GoingPrivate,
-    Failed,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
 #[source(AppScope = AppScope::Client)]
 pub enum ClientState {
     #[default]
+    Discovering,
     Connecting,
     Connected,
+    Syncing,
+    Running,
     Disconnecting,
-    Failed,
+    Error,
 }
