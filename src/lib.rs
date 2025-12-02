@@ -7,13 +7,9 @@ mod systems;
 use bevy_inspector_egui::quick::StateInspectorPlugin;
 
 use {
-    aeronet_channel::{ChannelDisconnected, ChannelIo, ChannelIoPlugin},
-    aeronet_webtransport::{
-        client::{WebTransportClient, WebTransportClientPlugin},
-        server::{WebTransportServer, WebTransportServerClient, WebTransportServerPlugin},
-    },
+    aeronet_channel::ChannelIoPlugin,
+    aeronet_webtransport::{client::WebTransportClientPlugin, server::WebTransportServerPlugin},
     bevy::prelude::*,
-    events::*,
     observer::*,
     states::*,
     systems::*,
@@ -31,7 +27,6 @@ impl Plugin for FOSServerPlugin {
         .init_state::<AppScope>()
         .add_sub_state::<HostState>()
         .add_sub_state::<ServerVisibility>()
-        .add_sub_state::<ClientState>()
         .init_resource::<ErrorMessage>()
         .init_resource::<HostServerConfig>()
         .init_resource::<HostServerConnectionConfig>()
@@ -39,64 +34,37 @@ impl Plugin for FOSServerPlugin {
         .add_observer(host_start)
         .add_observer(host_stop)
         .add_observer(host_go_public)
-        .add_observer(host_session_request)
         .add_observer(host_go_private)
-        .add_observer(client_connect)
-        .add_observer(client_disconnect)
-        .add_observer(client_retry)
-        .add_observer(reset_to_menu)
         .add_systems(
             Update,
-            on_host_starting
+            host_starting
                 .run_if(in_state(ServerVisibility::Local))
                 .run_if(in_state(HostState::Starting))
                 .run_if(in_state(AppScope::Host)),
         )
         .add_systems(
-            Update,
-            on_host_running_private
-                .run_if(in_state(ServerVisibility::Local))
-                .run_if(in_state(HostState::Running)),
+            OnEnter(HostState::Running),
+            host_running_private.run_if(in_state(ServerVisibility::Local)),
         )
         .add_systems(
             Update,
-            on_host_stopping
+            host_stopping
                 .run_if(in_state(HostState::Stopping))
                 .run_if(in_state(AppScope::Host)),
         )
         .add_systems(
             Update,
-            on_host_going_public
+            host_going_public
                 .run_if(in_state(ServerVisibility::GoingPublic))
                 .run_if(in_state(HostState::Running)),
         )
         .add_systems(
-            Update,
-            (on_host_running_public)
-                .run_if(in_state(ServerVisibility::Public))
-                .run_if(in_state(HostState::Running)),
+            OnEnter(ServerVisibility::Public),
+            host_running_public.run_if(in_state(HostState::Running)),
         )
         .add_systems(
             Update,
-            on_host_going_private.run_if(in_state(ServerVisibility::GoingPrivate)),
-        )
-        .add_systems(
-            Update,
-            on_client_connecting
-                .run_if(in_state(ClientState::Connecting))
-                .run_if(in_state(AppScope::Client)),
-        )
-        .add_systems(
-            Update,
-            on_client_connected
-                .run_if(in_state(ClientState::Connected))
-                .run_if(in_state(AppScope::Client)),
-        )
-        .add_systems(
-            Update,
-            on_client_disconnecting
-                .run_if(in_state(ClientState::Disconnecting))
-                .run_if(in_state(AppScope::Client)),
+            host_going_private.run_if(in_state(ServerVisibility::GoingPrivate)),
         );
 
         #[cfg(debug_assertions)]
@@ -106,9 +74,7 @@ impl Plugin for FOSServerPlugin {
                 .register_type::<HostState>()
                 .add_plugins(StateInspectorPlugin::<HostState>::default())
                 .register_type::<ServerVisibility>()
-                .add_plugins(StateInspectorPlugin::<ServerVisibility>::default())
-                .register_type::<ClientState>()
-                .add_plugins(StateInspectorPlugin::<ClientState>::default());
+                .add_plugins(StateInspectorPlugin::<ServerVisibility>::default());
         }
     }
 }

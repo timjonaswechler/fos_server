@@ -5,7 +5,6 @@ pub enum AppScope {
     #[default]
     Menu,
     Host,
-    Client,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
@@ -26,15 +25,5 @@ pub enum ServerVisibility {
     GoingPublic,
     Public,
     GoingPrivate,
-    Failed,
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(AppScope = AppScope::Client)]
-pub enum ClientState {
-    #[default]
-    Connecting,
-    Connected,
-    Disconnecting,
     Failed,
 }

@@ -28,7 +28,6 @@ fn ui_example_system(
     app_scope: Res<State<AppScope>>,
     host_state: Option<Res<State<HostState>>>,
     server_visibility: Option<Res<State<ServerVisibility>>>,
-    client_state: Option<Res<State<ClientState>>>,
     error_msg: Res<ErrorMessage>,
     mut host_config: ResMut<HostServerConfig>,
     mut client_config: ResMut<ClientConnectionConfig>,
@@ -48,12 +47,6 @@ fn ui_example_system(
                 );
             }
         }
-
-        AppScope::Client => {
-            if let Some(c_state) = client_state {
-                ui_client(ui, &mut commands, c_state.get(), &error_msg.0);
-            }
-        }
     });
     Ok(())
 }
@@ -71,10 +64,6 @@ fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut ClientC
         ui.label("Target Port:");
         ui.text_edit_singleline(&mut config.port);
     });
-
-    if ui.button("Connect to Server").clicked() {
-        commands.trigger(RequestClientConnect);
-    }
 }
 
 fn ui_host(
@@ -160,41 +149,5 @@ fn ui_host(
             ui.label("Saving & Shutting down...");
         }
         _ => {}
-    }
-}
-
-fn ui_client(ui: &mut egui::Ui, commands: &mut Commands, state: &ClientState, error_text: &str) {
-    ui.heading("Client Mode");
-
-    match state {
-        ClientState::Connecting => {
-            ui.spinner();
-            ui.label("Connecting to server...");
-        }
-        ClientState::Connected => {
-            ui.label("Status: Connected");
-            ui.label("Ping: 24ms");
-            if ui.button("Disconnect").clicked() {
-                commands.trigger(RequestClientDisconnect);
-            }
-        }
-        ClientState::Disconnecting => {
-            ui.spinner();
-            ui.label("Disconnecting...");
-        }
-        ClientState::Failed => {
-            ui.colored_label(
-                egui::Color32::RED,
-                format!("Connection Failed: {}", error_text),
-            );
-            ui.horizontal(|ui| {
-                if ui.button("Retry").clicked() {
-                    commands.trigger(RequestClientRetry);
-                }
-                if ui.button("Back to Menu").clicked() {
-                    commands.trigger(RequestResetToMenu);
-                }
-            });
-        }
     }
 }
