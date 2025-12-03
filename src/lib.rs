@@ -1,10 +1,14 @@
 pub mod client;
+pub mod menu;
+pub mod notifications;
 pub mod server;
 pub mod singleplayer;
 pub mod states;
 
 #[cfg(debug_assertions)]
 use bevy_inspector_egui::quick::StateInspectorPlugin;
+
+pub use notifications::*;
 
 use {
     aeronet_channel::ChannelIoPlugin,
@@ -39,6 +43,8 @@ impl Plugin for FOSServerPlugin {
         .add_observer(on_singleplayer_unpauseing)
         .add_observer(on_singleplayer_stopping)
         .add_observer(on_singleplayer_stoped)
+        .add_observer(on_notify_error)
+        .add_systems(Update, error_lifecycle)
         .add_systems(
             Update,
             singleplayer_running
