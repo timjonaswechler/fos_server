@@ -1,9 +1,6 @@
 use {
-    crate::{client::events::InternSyncCompleted, states::ClientState, ErrorMessage, LocalClient},
-    aeronet_io::{
-        connection::{Disconnect, DisconnectReason, Disconnected},
-        Session,
-    },
+    crate::{client::events::InternSyncCompleted, states::ClientState, ErrorMessage, LocalClient, NotifyError},
+    aeronet_io::{connection::Disconnect, Session},
     aeronet_webtransport::client::WebTransportClient,
     bevy::prelude::*,
     events::{RequestClientConnect, RequestClientDisconnect},
@@ -32,7 +29,9 @@ pub fn on_client_connecting(
     let config = match client_config(cert_hash) {
         Ok(config) => config,
         Err(err) => {
-            ErrorMessage::new("Failed to create client config: {err:?}");
+            commands.trigger(NotifyError::new(format!(
+                "Failed to create client config: {err:?}"
+            )));
             return;
         }
     };

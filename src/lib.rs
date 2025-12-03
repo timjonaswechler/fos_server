@@ -28,11 +28,8 @@ impl Plugin for FOSServerPlugin {
             WebTransportClientPlugin,
             WebTransportServerPlugin,
             ChannelIoPlugin,
+            StatesPlugin,
         ))
-        .init_state::<AppScope>()
-        .add_sub_state::<SingleplayerState>()
-        .add_sub_state::<ServerVisibility>()
-        .add_sub_state::<ClientState>()
         .init_resource::<ErrorMessage>()
         .init_resource::<SingleplayerServerConfig>()
         .init_resource::<SingleplayerServerConnectionConfig>()
@@ -48,13 +45,13 @@ impl Plugin for FOSServerPlugin {
         .add_systems(
             Update,
             singleplayer_running
-                .run_if(in_state(ServerVisibility::Local))
+                .run_if(in_state(ServerVisibilityState::Local))
                 .run_if(in_state(SingleplayerState::Running)),
         )
         .add_systems(
             Update,
             singleplayer_paused
-                .run_if(in_state(ServerVisibility::Local))
+                .run_if(in_state(ServerVisibilityState::Local))
                 .run_if(in_state(SingleplayerState::Paused)),
         )
         .add_systems(
@@ -73,18 +70,18 @@ impl Plugin for FOSServerPlugin {
             Update,
             server_is_public
                 .run_if(in_state(SingleplayerState::Running))
-                .run_if(in_state(ServerVisibility::GoingPublic)),
+                .run_if(in_state(ServerVisibilityState::GoingPublic)),
         )
         .add_systems(
             Update,
             server_running
-                .run_if(in_state(ServerVisibility::Public))
+                .run_if(in_state(ServerVisibilityState::Public))
                 .run_if(in_state(SingleplayerState::Running)),
         )
         .add_systems(
             Update,
             server_going_private
-                .run_if(in_state(ServerVisibility::GoingPrivate))
+                .run_if(in_state(ServerVisibilityState::GoingPrivate))
                 .run_if(in_state(SingleplayerState::Running)),
         )
         .add_observer(on_client_connecting)
@@ -95,10 +92,6 @@ impl Plugin for FOSServerPlugin {
         .add_observer(on_client_disconnecting)
         .add_systems(
             Update,
-            client_discover_server.run_if(in_state(ClientState::Discovering)),
-        )
-        .add_systems(
-            Update,
             client_syncing.run_if(in_state(ClientState::Syncing)),
         );
 
@@ -106,10 +99,12 @@ impl Plugin for FOSServerPlugin {
         {
             app.register_type::<AppScope>()
                 .add_plugins(StateInspectorPlugin::<AppScope>::default())
+                .register_type::<MenuState>()
+                .add_plugins(StateInspectorPlugin::<MenuState>::default())
                 .register_type::<SingleplayerState>()
                 .add_plugins(StateInspectorPlugin::<SingleplayerState>::default())
-                .register_type::<ServerVisibility>()
-                .add_plugins(StateInspectorPlugin::<ServerVisibility>::default())
+                .register_type::<ServerVisibilityState>()
+                .add_plugins(StateInspectorPlugin::<ServerVisibilityState>::default())
                 .register_type::<ClientState>()
                 .add_plugins(StateInspectorPlugin::<ClientState>::default());
         }
@@ -131,15 +126,6 @@ pub struct LocalBot;
 
 #[derive(Component)]
 pub struct ClientConnection;
-
-#[derive(Resource, Default)]
-pub struct ErrorMessage(pub String);
-
-impl ErrorMessage {
-    pub fn new(msg: impl Into<String>) -> Self {
-        ErrorMessage(msg.into())
-    }
-}
 
 // Resource for LAN Server Details
 #[derive(Resource)]

@@ -11,6 +11,7 @@ fn main() -> AppExit {
             WorldInspectorPlugin::new(),
             FOSServerPlugin,
         ))
+        .insert_resource(UI)
         .add_systems(Startup, setup_camera_system)
         .add_systems(EguiPrimaryContextPass, ui_example_system)
         .run()
@@ -20,184 +21,197 @@ fn setup_camera_system(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
+#[derive(Resource)]
+pub struct UI;
+
 // --- UI SYSTEM ---
 
 fn ui_example_system(
     mut commands: Commands,
     mut egui: EguiContexts,
-    app_scope: Res<State<AppScope>>,
-    singleplayer_state: Option<Res<State<SingleplayerState>>>,
-    server_visibility: Option<Res<State<ServerVisibility>>>,
-    client_state: Option<Res<State<ClientState>>>,
-    error_msg: Res<ErrorMessage>,
-    mut singleplayer_config: ResMut<SingleplayerServerConfig>,
-    mut client_config: ResMut<ClientConnectionConfig>,
+    app_state: Res<State<AppScope>>,
+    menu_state: Res<State<MenuState>>,
+    singleplayer_menu_state: Option<Res<State<SingleplayerMenuState>>>,
+    multiplayer_menu_state: Option<Res<State<MultiplayerMenuState>>>,
+    // wiki_menu_state: Res<State<WikiMenuState>>,
+    // settings_menu_state: Res<State<SettingsMenuState>>,
 ) -> Result<(), bevy::prelude::BevyError> {
-    egui::Window::new("Singleplayer Client Status").show(egui.ctx_mut()?, |ui| {
-        match app_scope.get() {
-            AppScope::Menu => ui_main_menu(ui, &mut commands, &mut client_config),
-
-            AppScope::Singleplayer => {
-                if let (Some(h_state), Some(vis_state)) = (singleplayer_state, server_visibility) {
-                    ui_singleplayer(
-                        ui,
-                        &mut commands,
-                        h_state.get(),
-                        vis_state.get(),
-                        &error_msg.0,
-                        &mut singleplayer_config,
-                    );
+    egui::Window::new("APP").show(egui.ctx_mut()?, |ui| {
+        ui.vertical_centered_justified(|ui| match *app_state.get() {
+            AppScope::Menu => match *menu_state.get() {
+                MenuState::Main => {
+                    ui.vertical_centered_justified(|ui| {
+                        if ui.button("Singleplayer").clicked() {
+                            commands.trigger(MainMenuEvent::RequestTransitionTo(
+                                MenuState::Singleplayer,
+                            ));
+                        }
+                        if ui.button("Multiplayer").clicked() {
+                            commands.trigger(MainMenuEvent::RequestTransitionTo(
+                                MenuState::Multiplayer,
+                            ));
+                        }
+                        if ui.button("Wiki").clicked() {
+                            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuState::Wiki));
+                        }
+                        if ui.button("Settings").clicked() {
+                            commands
+                                .trigger(MainMenuEvent::RequestTransitionTo(MenuState::Settings));
+                        }
+                        if ui.add_enabled(false, egui::Button::new("Quit")).clicked() {
+                            unreachable!();
+                        }
+                    });
                 }
-            }
-
-            AppScope::Client => {
-                if let Some(c_state) = client_state {
-                    ui_client(ui, &mut commands, c_state.get(), &error_msg.0);
+                MenuState::Singleplayer => {
+                    ui.vertical_centered_justified(|ui| {
+                        if let Some(singleplayer_menu_state) = singleplayer_menu_state.as_ref() {
+                            match singleplayer_menu_state.get() {
+                                SingleplayerMenuState::Overview => {
+                                    if ui.button("New Game").clicked() {
+                                        commands.trigger(
+                                            SingleplayerMenuEvent::RequestTransitionTo(
+                                                SingleplayerMenuState::NewGame,
+                                            ),
+                                        );
+                                    }
+                                    if ui.button("Load Game").clicked() {
+                                        commands.trigger(
+                                            SingleplayerMenuEvent::RequestTransitionTo(
+                                                SingleplayerMenuState::LoadGame,
+                                            ),
+                                        );
+                                    }
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(MainMenuEvent::RequestTransitionTo(
+                                            MenuState::Main,
+                                        ));
+                                    }
+                                }
+                                SingleplayerMenuState::NewGame => {
+                                    if ui.button("Start").clicked() {}
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(
+                                            SingleplayerMenuEvent::RequestTransitionTo(
+                                                SingleplayerMenuState::Overview,
+                                            ),
+                                        );
+                                    }
+                                }
+                                SingleplayerMenuState::LoadGame => {
+                                    if ui.button("Load").clicked() {}
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(
+                                            SingleplayerMenuEvent::RequestTransitionTo(
+                                                SingleplayerMenuState::Overview,
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    });
                 }
-            }
-        }
+                MenuState::Multiplayer => {
+                    ui.vertical_centered_justified(|ui| {
+                        if let Some(multiplayer_menu_state) = multiplayer_menu_state.as_ref() {
+                            match multiplayer_menu_state.get() {
+                                MultiplayerMenuState::Overview => {
+                                    if ui.button("Host new Game").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::HostNewGame,
+                                            ),
+                                        );
+                                    }
+                                    if ui.button("Host saved Game").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::HostNewGame,
+                                            ),
+                                        );
+                                    }
+                                    if ui.button("Join public Game").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::JoinPublicGame,
+                                            ),
+                                        );
+                                    }
+                                    if ui.button("Join local Game").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::JoinLocalGame,
+                                            ),
+                                        );
+                                    }
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(MainMenuEvent::RequestTransitionTo(
+                                            MenuState::Main,
+                                        ));
+                                    }
+                                }
+                                MultiplayerMenuState::HostNewGame => {
+                                    if ui.button("New Game").clicked() {}
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::Overview,
+                                            ),
+                                        );
+                                    }
+                                }
+                                MultiplayerMenuState::HostSavedGame => {
+                                    if ui.button("Load Game").clicked() {}
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::Overview,
+                                            ),
+                                        );
+                                    }
+                                }
+                                MultiplayerMenuState::JoinPublicGame => {
+                                    if ui.button("Join Public Game").clicked() {}
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::Overview,
+                                            ),
+                                        );
+                                    }
+                                }
+                                MultiplayerMenuState::JoinLocalGame => {
+                                    if ui.button("Join Local Game").clicked() {}
+                                    if ui.button("Back").clicked() {
+                                        commands.trigger(
+                                            MultiplayerMenuEvent::RequestTransitionTo(
+                                                MultiplayerMenuState::Overview,
+                                            ),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                MenuState::Wiki => {
+                    ui.vertical_centered_justified(|ui| {
+                        if ui.button("Back").clicked() {
+                            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuState::Main));
+                        }
+                    });
+                }
+                MenuState::Settings => {
+                    ui.vertical_centered_justified(|ui| {
+                        if ui.button("Back").clicked() {
+                            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuState::Main));
+                        }
+                    });
+                }
+            },
+            _ => {}
+        });
     });
     Ok(())
-}
-
-fn ui_main_menu(ui: &mut egui::Ui, commands: &mut Commands, config: &mut ClientConnectionConfig) {
-    ui.heading("Main Menu");
-    if ui.button("Start Singleplayer").clicked() {
-        commands.trigger(RequestSingleplayerStart);
-    }
-
-    ui.separator();
-    ui.horizontal(|ui| {
-        ui.label("Target IP:");
-        ui.text_edit_singleline(&mut config.address);
-        ui.label("Target Port:");
-        ui.text_edit_singleline(&mut config.port);
-    });
-
-    if ui.button("Connect to Server").clicked() {
-        commands.trigger(RequestClientConnect);
-    }
-}
-
-fn ui_singleplayer(
-    ui: &mut egui::Ui,
-    commands: &mut Commands,
-    h_state: &SingleplayerState,
-    vis_state: &ServerVisibility,
-    error_text: &str,
-    config: &mut SingleplayerServerConfig,
-) {
-    ui.heading("Singleplayer Mode");
-
-    // Global Singleplayer Error (e.g. Crash on start)
-    if *h_state == SingleplayerState::Error {
-        ui.colored_label(egui::Color32::RED, format!("Error: {}", error_text));
-        if ui.button("Back to Menu").clicked() {
-            commands.trigger(RequestResetToMenu);
-        }
-        return; // Do not show further controls
-    }
-
-    ui.label(format!("State: {:?}", h_state));
-
-    match h_state {
-        SingleplayerState::Starting => {
-            ui.spinner();
-            ui.label("Initializing World...");
-        }
-        SingleplayerState::Running => {
-            ui.separator();
-
-            // Server Visibility Status Handling
-            if *vis_state == ServerVisibility::Error {
-                ui.colored_label(
-                    egui::Color32::RED,
-                    format!("Server Visibility Error: {}", error_text),
-                );
-                if ui.button("Acknowledge (Reset to Local)").clicked() {
-                    // We reset the visibility status, but stay in Singleplayer mode
-                    commands.trigger(RequestSingleplayerGoPrivate);
-                }
-            } else {
-                ui.label(format!("Visibility: {:?}", vis_state));
-                match vis_state {
-                    ServerVisibility::Local => {
-                        ui.horizontal(|ui| {
-                            ui.label("Port:");
-                            ui.text_edit_singleline(&mut config.port);
-                        });
-                        if ui.button("Open to Public (LAN)").clicked() {
-                            commands.trigger(RequestSingleplayerGoPublic);
-                        }
-                    }
-                    ServerVisibility::GoingPublic => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label("Opening Ports...");
-                        });
-                    }
-                    ServerVisibility::Public => {
-                        ui.label("Server is visible on LAN");
-                        if ui.button("Close (Go Private)").clicked() {
-                            commands.trigger(RequestSingleplayerGoPrivate);
-                        }
-                    }
-                    ServerVisibility::GoingPrivate => {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label("Closing Ports...");
-                        });
-                    }
-                    _ => {}
-                }
-            }
-
-            ui.separator();
-            if ui.button("Stop Singleplayer").clicked() {
-                commands.trigger(RequestSingleplayerStop);
-            }
-        }
-        SingleplayerState::Stopping => {
-            ui.spinner();
-            ui.label("Saving & Shutting down...");
-        }
-        _ => {}
-    }
-}
-
-fn ui_client(ui: &mut egui::Ui, commands: &mut Commands, state: &ClientState, error_text: &str) {
-    ui.heading("Client Mode");
-
-    match state {
-        ClientState::Connecting => {
-            ui.spinner();
-            ui.label("Connecting to server...");
-        }
-        ClientState::Connected => {
-            ui.label("Status: Connected");
-            ui.label("Ping: 24ms");
-            if ui.button("Disconnect").clicked() {
-                commands.trigger(RequestClientDisconnect);
-            }
-        }
-        ClientState::Disconnecting => {
-            ui.spinner();
-            ui.label("Disconnecting...");
-        }
-        ClientState::Error => {
-            ui.colored_label(
-                egui::Color32::RED,
-                format!("Connection Failed: {}", error_text),
-            );
-            ui.horizontal(|ui| {
-                if ui.button("Retry").clicked() {
-                    commands.trigger(RequestClientRetry);
-                }
-                if ui.button("Back to Menu").clicked() {
-                    commands.trigger(RequestResetToMenu);
-                }
-            });
-        }
-        _ => {}
-    }
 }

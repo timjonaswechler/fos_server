@@ -1,7 +1,7 @@
 use {
     crate::{
         server::events::{RequestSingleplayerGoPrivate, RequestSingleplayerGoPublic},
-        states::ServerVisibility,
+        states::ServerVisibilityState,
     },
     aeronet_io::{
         connection::Disconnect,
@@ -18,9 +18,9 @@ use {
 pub fn on_server_going_public(
     _: On<RequestSingleplayerGoPublic>,
     mut commands: Commands,
-    mut next_state: ResMut<NextState<ServerVisibility>>,
+    mut next_state: ResMut<NextState<ServerVisibilityState>>,
 ) {
-    next_state.set(ServerVisibility::GoingPublic);
+    next_state.set(ServerVisibilityState::GoingPublic);
     // TODO: Implement User interface infos for server
     // TODO: Implement Port usage detection
     let identity = aeronet_webtransport::wtransport::Identity::self_signed([
@@ -32,13 +32,13 @@ pub fn on_server_going_public(
     let cert = &identity.certificate_chain().as_slice()[0];
     let spki_fingerprint = cert::spki_fingerprint_b64(cert).expect("should be a valid certificate");
     let cert_hash = cert::hash_to_b64(cert.hash());
-    // info!("************************");
-    // info!("SPKI FINGERPRINT");
-    // info!("  {spki_fingerprint}");
-    // info!("CERTIFICATE HASH");
-    // info!("  {cert_hash}");
-    // info!("************************");
-    info!("WebTransport Server starting");
+    info!("************************");
+    info!("SPKI FINGERPRINT");
+    info!("  {spki_fingerprint}");
+    info!("CERTIFICATE HASH");
+    info!("  {cert_hash}");
+    info!("************************");
+
     let config = aeronet_webtransport::wtransport::ServerConfig::builder()
         .with_bind_default(25571)
         .with_identity(identity)
@@ -55,20 +55,20 @@ pub fn on_server_going_public(
 pub fn server_is_public(
     _commands: Commands,
     server_query: Query<Entity, (With<Server>, With<ServerEndpoint>)>,
-    mut next_state: ResMut<NextState<ServerVisibility>>,
+    mut next_state: ResMut<NextState<ServerVisibilityState>>,
 ) {
     if let Ok(_) = server_query.single() {
         info!("WebTransport Server is ready");
-        next_state.set(ServerVisibility::Public);
+        next_state.set(ServerVisibilityState::Public);
     }
 }
 pub fn server_running(
     _commands: Commands,
     server_query: Query<Entity, With<WebTransportServer>>,
-    mut next_state: ResMut<NextState<ServerVisibility>>,
+    mut next_state: ResMut<NextState<ServerVisibilityState>>,
 ) {
     if server_query.is_empty() {
-        next_state.set(ServerVisibility::GoingPrivate);
+        next_state.set(ServerVisibilityState::GoingPrivate);
         return;
     }
     info!("WebTransport Server is running");
@@ -76,9 +76,9 @@ pub fn server_running(
 
 pub fn on_server_going_private(
     _: On<RequestSingleplayerGoPrivate>,
-    mut next_state: ResMut<NextState<ServerVisibility>>,
+    mut next_state: ResMut<NextState<ServerVisibilityState>>,
 ) {
-    next_state.set(ServerVisibility::GoingPrivate);
+    next_state.set(ServerVisibilityState::GoingPrivate);
     info!("WebTransport Server set to go down");
 }
 
@@ -86,7 +86,7 @@ pub fn server_going_private(
     mut commands: Commands,
     client_query: Query<Entity, With<WebTransportServerClient>>,
     server_query: Query<Entity, With<WebTransportServer>>,
-    mut next_state: ResMut<NextState<ServerVisibility>>,
+    mut next_state: ResMut<NextState<ServerVisibilityState>>,
 ) {
     info!(
         "Server going down\n Still {} clients connected\n Servers: {} active",
@@ -107,7 +107,7 @@ pub fn server_going_private(
     }
     if client_query.is_empty() && server_query.is_empty() {
         info!("Server is down");
-        next_state.set(ServerVisibility::Local);
+        next_state.set(ServerVisibilityState::Local);
     }
 }
 

@@ -1,7 +1,7 @@
 use {
     crate::{
         singleplayer::events::*,
-        states::{AppScope, ServerVisibility, SingleplayerState},
+        states::{AppScope, ServerVisibilityState, SingleplayerState},
         LocalBot, LocalClient, LocalServer, LocalSession,
     },
     aeronet_channel::ChannelIo,
@@ -15,7 +15,7 @@ pub fn on_singleplayer_starting(
     mut commands: Commands,
     mut next_state: ResMut<NextState<AppScope>>,
 ) {
-    next_state.set(AppScope::Singleplayer);
+    next_state.set(AppScope::InGame);
 
     let server_entity = commands
         .spawn((Name::new("Local Server"), LocalSession, LocalServer))
@@ -44,10 +44,10 @@ pub fn singleplayer_running(mut _commands: Commands) {
 pub fn on_singleplayer_pauseing(
     _: On<RequestSingleplayerPause>,
     mut next_state: ResMut<NextState<SingleplayerState>>,
-    server_visibility: Res<NextState<ServerVisibility>>,
+    server_visibility: Res<NextState<ServerVisibilityState>>,
 ) {
     match *server_visibility {
-        NextState::Pending(ServerVisibility::Local) => {
+        NextState::Pending(ServerVisibilityState::Local) => {
             next_state.set(SingleplayerState::Paused);
         }
         _ => (),
@@ -57,10 +57,10 @@ pub fn on_singleplayer_pauseing(
 pub fn on_singleplayer_unpauseing(
     _: On<RequestSingleplayerResume>,
     mut next_state: ResMut<NextState<SingleplayerState>>,
-    server_visibility: Res<NextState<ServerVisibility>>,
+    server_visibility: Res<NextState<ServerVisibilityState>>,
 ) {
     match *server_visibility {
-        NextState::Pending(ServerVisibility::Local) => {
+        NextState::Pending(ServerVisibilityState::Local) => {
             next_state.set(SingleplayerState::Running);
         }
         _ => (),
