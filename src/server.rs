@@ -107,7 +107,7 @@ pub fn server_going_private(
     }
     if client_query.is_empty() && server_query.is_empty() {
         info!("Server is down");
-        next_state.set(ServerVisibilityState::Local);
+        next_state.set(ServerVisibilityState::Private);
     }
 }
 

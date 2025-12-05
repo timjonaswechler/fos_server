@@ -19,7 +19,6 @@ impl Plugin for SingleplayerLogicPlugin {
         )
         .add_observer(on_singleplayer_ready)
         .add_systems(OnEnter(SingleplayerState::Running), on_singleplayer_running)
-        .add_systems(OnEnter(SingleplayerState::Paused), on_singleplayer_paused)
         .add_systems(
             Update,
             singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
@@ -49,10 +48,6 @@ pub fn on_singleplayer_ready(_: On<Add, LocalClient>, mut commands: Commands) {
 
 pub fn on_singleplayer_running(mut _commands: Commands) {
     debug!("Singleplayer is running");
-}
-
-pub fn on_singleplayer_paused(mut _commands: Commands) {
-    debug!("Singleplayer is paused");
 }
 
 pub fn singleplayer_stopping(

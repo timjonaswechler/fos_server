@@ -10,9 +10,12 @@ impl Plugin for StatesPlugin {
             .add_sub_state::<MultiplayerMenuScreen>()
             .add_sub_state::<WikiMenuScreen>()
             .add_sub_state::<GameMode>()
+            .add_sub_state::<InGameMode>()
+            .add_sub_state::<GameMenuScreen>()
             .add_sub_state::<SingleplayerState>()
             .add_sub_state::<ServerVisibilityState>()
             .add_sub_state::<ClientState>()
+            .add_computed_state::<SimulationState>()
             // Transition Handling
             .add_observer(on_main_menu_event)
             .add_observer(on_singleplayer_menu_screen_event)
@@ -21,7 +24,10 @@ impl Plugin for StatesPlugin {
             .add_observer(on_wiki_menu_screen_event)
             .add_observer(on_settings_menu_screen_event)
             .add_observer(on_game_mode_event)
-            .add_observer(on_singleplayer_state_event);
+            .add_observer(on_singleplayer_state_event)
+            .add_observer(on_in_game_mode_event)
+            .add_observer(on_game_menu_event)
+            .add_systems(Update, toggle_game_menu.run_if(in_state(AppScope::InGame)));
     }
 }
 
@@ -228,7 +234,7 @@ fn on_game_mode_event(
                 next_app_state.set(AppScope::InGame);
                 next_game_mode.set(GameMode::Singleplayer);
                 next_singleplayer_state.set(SingleplayerState::Starting);
-                next_server_state.set(ServerVisibilityState::Local);
+                next_server_state.set(ServerVisibilityState::Private);
             }
         }
         GameModeEvent::RequestTransitionTo(GameMode::Client) => {
@@ -255,14 +261,76 @@ fn on_singleplayer_state_event(
         SingleplayerStateEvent::RequestTransitionTo(SingleplayerState::Running) => {
             singleplayer_state.set(SingleplayerState::Running);
         }
-        SingleplayerStateEvent::RequestTransitionTo(SingleplayerState::Paused) => {
-            singleplayer_state.set(SingleplayerState::Paused);
-        }
         SingleplayerStateEvent::RequestTransitionTo(SingleplayerState::Stopping) => {
             singleplayer_state.set(SingleplayerState::Stopping);
         }
         SingleplayerStateEvent::RequestTransitionTo(SingleplayerState::Failed) => {
             singleplayer_state.set(SingleplayerState::Failed);
+        }
+    }
+}
+
+fn toggle_game_menu(
+    mut commands: Commands,
+    keys: Res<ButtonInput<KeyCode>>,
+    current_mode: Option<Res<State<InGameMode>>>,
+) {
+    if keys.just_pressed(KeyCode::Escape) {
+        if let Some(mode) = current_mode {
+            match mode.get() {
+                InGameMode::Playing => {
+                    commands.trigger(InGameModeEvent::RequestTransitionTo(InGameMode::GameMenu));
+                }
+                InGameMode::GameMenu => {
+                    commands.trigger(InGameModeEvent::RequestTransitionTo(InGameMode::Playing));
+                }
+            }
+        }
+    }
+}
+
+fn on_in_game_mode_event(
+    event: On<InGameModeEvent>,
+    mut next_in_game_mode: ResMut<NextState<InGameMode>>,
+    mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
+) {
+    match *event {
+        InGameModeEvent::RequestTransitionTo(InGameMode::Playing) => {
+            next_in_game_mode.set(InGameMode::Playing);
+        }
+        InGameModeEvent::RequestTransitionTo(InGameMode::GameMenu) => {
+            next_in_game_mode.set(InGameMode::GameMenu);
+            // Default to Overview when opening the menu
+            next_game_menu_screen.set(GameMenuScreen::Overview);
+        }
+    }
+}
+
+fn on_game_menu_event(
+    event: On<GameMenuEvent>,
+    mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
+    mut commands: Commands,
+) {
+    match *event {
+        GameMenuEvent::RequestTransitionTo(GameMenuScreen::Overview) => {
+            next_game_menu_screen.set(GameMenuScreen::Overview);
+        }
+        GameMenuEvent::RequestTransitionTo(GameMenuScreen::Settings) => {
+            next_game_menu_screen.set(GameMenuScreen::Settings);
+        }
+        GameMenuEvent::RequestTransitionTo(GameMenuScreen::Save) => {
+            next_game_menu_screen.set(GameMenuScreen::Save);
+        }
+        GameMenuEvent::RequestTransitionTo(GameMenuScreen::Load) => {
+            next_game_menu_screen.set(GameMenuScreen::Load);
+        }
+        GameMenuEvent::RequestTransitionTo(GameMenuScreen::Exit) => {
+            next_game_menu_screen.set(GameMenuScreen::Exit);
+            // Logic to actually exit/disconnect would go here or be triggered by entering this state
+            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuScreen::Main));
+        }
+        GameMenuEvent::Resume => {
+            commands.trigger(InGameModeEvent::RequestTransitionTo(InGameMode::Playing));
         }
     }
 }
@@ -311,6 +379,17 @@ pub enum GameModeEvent {
 #[derive(Event, Debug, Clone, Copy)]
 pub enum SingleplayerStateEvent {
     RequestTransitionTo(SingleplayerState),
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub enum InGameModeEvent {
+    RequestTransitionTo(InGameMode),
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub enum GameMenuEvent {
+    RequestTransitionTo(GameMenuScreen),
+    Resume,
 }
 
 // --- STATE DEFINITIONS ---
@@ -422,7 +501,6 @@ pub enum SingleplayerState {
     #[default]
     Starting,
     Running,
-    Paused,
     Stopping,
     Failed,
 }
@@ -431,7 +509,7 @@ pub enum SingleplayerState {
 #[source(GameMode = GameMode::Singleplayer)]
 pub enum ServerVisibilityState {
     #[default]
-    Local,
+    Private,
     GoingPublic,
     Public,
     GoingPrivate,
@@ -450,4 +528,46 @@ pub enum ClientState {
     Running,
     Disconnecting,
     Failed,
+}
+
+// --- COMPUTED STATES ---
+
+/// Dieser State abstrahiert, ob die Spielsimulation (Physik, Zeit, etc.) tatsächlich läuft
+/// oder angehalten ist, unabhängig davon, welches Menü gerade offen ist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
+pub enum SimulationState {
+    Running,
+    Paused,
+}
+
+impl ComputedStates for SimulationState {
+    type SourceStates = (InGameMode, GameMode, ServerVisibilityState);
+
+    fn compute(
+        (in_game_mode, game_mode, server_visibility): (InGameMode, GameMode, ServerVisibilityState),
+    ) -> Option<Self> {
+        // Wenn wir nicht "InGame" sind (also kein InGameMode existiert), ist die Simulation irrelevant oder pausiert.
+        // Wir geben hier einfach None zurück oder Paused, je nach gewünschtem Verhalten beim State-Wechsel.
+        // Bevy Computed States werden nur berechnet, wenn sich die Source States ändern.
+        // Wenn eine Source None ist (weil der SuperState nicht aktiv ist), können wir oft auch None zurückgeben.
+        match in_game_mode {
+            InGameMode::Playing => Some(SimulationState::Running),
+            InGameMode::GameMenu => {
+                match game_mode {
+                    GameMode::Client => {
+                        // Client läuft im Multiplayer immer weiter, auch im Menü
+                        Some(SimulationState::Running)
+                    }
+                    GameMode::Singleplayer => {
+                        match server_visibility {
+                            // Im lokalen Singleplayer pausiert das Menü das Spiel
+                            ServerVisibilityState::Private => Some(SimulationState::Paused),
+                            // Wenn der Server öffentlich ist, läuft das Spiel weiter (wie Multiplayer)
+                            _ => Some(SimulationState::Running),
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
