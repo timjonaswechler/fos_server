@@ -25,6 +25,8 @@ impl Plugin for StatesPlugin {
             .add_observer(on_settings_menu_screen_event)
             .add_observer(on_game_mode_event)
             .add_observer(on_singleplayer_state_event)
+            .add_observer(on_server_visibility_event)
+            .add_observer(on_client_state_event)
             .add_observer(on_in_game_mode_event)
             .add_observer(on_game_menu_event)
             .add_systems(Update, toggle_game_menu.run_if(in_state(AppScope::InGame)));
@@ -270,6 +272,28 @@ fn on_singleplayer_state_event(
     }
 }
 
+fn on_server_visibility_event(
+    event: On<ServerVisibilityEvent>,
+    mut next_state: ResMut<NextState<ServerVisibilityState>>,
+) {
+    match *event {
+        ServerVisibilityEvent::RequestTransitionTo(state) => {
+            next_state.set(state);
+        }
+    }
+}
+
+fn on_client_state_event(
+    event: On<ClientStateEvent>,
+    mut next_state: ResMut<NextState<ClientState>>,
+) {
+    match *event {
+        ClientStateEvent::RequestTransitionTo(state) => {
+            next_state.set(state);
+        }
+    }
+}
+
 fn toggle_game_menu(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -379,6 +403,16 @@ pub enum GameModeEvent {
 #[derive(Event, Debug, Clone, Copy)]
 pub enum SingleplayerStateEvent {
     RequestTransitionTo(SingleplayerState),
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub enum ServerVisibilityEvent {
+    RequestTransitionTo(ServerVisibilityState),
+}
+
+#[derive(Event, Debug, Clone, Copy)]
+pub enum ClientStateEvent {
+    RequestTransitionTo(ClientState),
 }
 
 #[derive(Event, Debug, Clone, Copy)]
