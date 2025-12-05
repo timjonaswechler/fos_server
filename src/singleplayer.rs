@@ -1,7 +1,6 @@
 use {
     crate::{
-        singleplayer::events::*,
-        states::{AppScope, ServerVisibilityState, SingleplayerState},
+        states::{SingleplayerState, SingleplayerStateEvent},
         LocalBot, LocalClient, LocalServer, LocalSession,
     },
     aeronet_channel::ChannelIo,
@@ -10,13 +9,25 @@ use {
     bevy::prelude::*,
 };
 
-pub fn on_singleplayer_starting(
-    _: On<RequestSingleplayerStart>,
-    mut commands: Commands,
-    mut next_state: ResMut<NextState<AppScope>>,
-) {
-    next_state.set(AppScope::InGame);
+pub struct SingleplayerLogicPlugin;
 
+impl Plugin for SingleplayerLogicPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_systems(
+            OnEnter(SingleplayerState::Starting),
+            on_singleplayer_starting,
+        )
+        .add_observer(on_singleplayer_ready)
+        .add_systems(OnEnter(SingleplayerState::Running), on_singleplayer_running)
+        .add_systems(OnEnter(SingleplayerState::Paused), on_singleplayer_paused)
+        .add_systems(
+            Update,
+            singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
+        );
+    }
+}
+
+pub fn on_singleplayer_starting(mut commands: Commands) {
     let server_entity = commands
         .spawn((Name::new("Local Server"), LocalSession, LocalServer))
         .id();
@@ -27,55 +38,21 @@ pub fn on_singleplayer_starting(
     commands.queue(ChannelIo::open(server_entity, client_entity));
 }
 
-pub fn on_singleplayer_ready(
-    _: On<Add, LocalClient>,
-    mut next_state: ResMut<NextState<SingleplayerState>>,
-) {
+pub fn on_singleplayer_ready(_: On<Add, LocalClient>, mut commands: Commands) {
     // TODO: check in which state we are at the moment
     // TODO: add If statement to check if the client and Server is added
-    next_state.set(SingleplayerState::Running);
+    commands.trigger(SingleplayerStateEvent::RequestTransitionTo(
+        SingleplayerState::Running,
+    ));
     info!("Singleplayer is ready");
 }
 
-pub fn singleplayer_running(mut _commands: Commands) {
+pub fn on_singleplayer_running(mut _commands: Commands) {
     debug!("Singleplayer is running");
 }
 
-pub fn on_singleplayer_pauseing(
-    _: On<RequestSingleplayerPause>,
-    mut next_state: ResMut<NextState<SingleplayerState>>,
-    server_visibility: Res<NextState<ServerVisibilityState>>,
-) {
-    match *server_visibility {
-        NextState::Pending(ServerVisibilityState::Local) => {
-            next_state.set(SingleplayerState::Paused);
-        }
-        _ => (),
-    }
-}
-
-pub fn on_singleplayer_unpauseing(
-    _: On<RequestSingleplayerResume>,
-    mut next_state: ResMut<NextState<SingleplayerState>>,
-    server_visibility: Res<NextState<ServerVisibilityState>>,
-) {
-    match *server_visibility {
-        NextState::Pending(ServerVisibilityState::Local) => {
-            next_state.set(SingleplayerState::Running);
-        }
-        _ => (),
-    }
-}
-
-pub fn singleplayer_paused(mut _commands: Commands) {
+pub fn on_singleplayer_paused(mut _commands: Commands) {
     debug!("Singleplayer is paused");
-}
-
-pub fn on_singleplayer_stopping(
-    _: On<RequestSingleplayerStop>,
-    mut next_state: ResMut<NextState<SingleplayerState>>,
-) {
-    next_state.set(SingleplayerState::Stopping);
 }
 
 pub fn singleplayer_stopping(
@@ -122,27 +99,4 @@ pub fn singleplayer_stopping(
             server_entity.despawn();
         }
     }
-}
-
-pub fn on_singleplayer_stoped(
-    _: On<Remove, LocalClient>,
-    mut next_state: ResMut<NextState<AppScope>>,
-) {
-    next_state.set(AppScope::Menu);
-}
-
-pub mod events {
-    use bevy::prelude::*;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestSingleplayerStart;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestSingleplayerStop;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestSingleplayerPause;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestSingleplayerResume;
 }

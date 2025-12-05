@@ -1,5 +1,4 @@
 pub mod client;
-pub mod menu;
 pub mod notifications;
 pub mod server;
 pub mod singleplayer;
@@ -16,7 +15,7 @@ use {
     bevy::prelude::*,
     client::*,
     server::*,
-    singleplayer::*,
+    singleplayer::SingleplayerLogicPlugin,
     states::*,
 };
 
@@ -29,35 +28,14 @@ impl Plugin for FOSServerPlugin {
             WebTransportServerPlugin,
             ChannelIoPlugin,
             StatesPlugin,
+            SingleplayerLogicPlugin,
         ))
         .init_resource::<ErrorMessage>()
         .init_resource::<SingleplayerServerConfig>()
         .init_resource::<SingleplayerServerConnectionConfig>()
         .init_resource::<ClientConnectionConfig>()
-        .add_observer(on_singleplayer_starting)
-        .add_observer(on_singleplayer_ready)
-        .add_observer(on_singleplayer_pauseing)
-        .add_observer(on_singleplayer_unpauseing)
-        .add_observer(on_singleplayer_stopping)
-        .add_observer(on_singleplayer_stoped)
         .add_observer(on_notify_error)
         .add_systems(Update, error_lifecycle)
-        .add_systems(
-            Update,
-            singleplayer_running
-                .run_if(in_state(ServerVisibilityState::Local))
-                .run_if(in_state(SingleplayerState::Running)),
-        )
-        .add_systems(
-            Update,
-            singleplayer_paused
-                .run_if(in_state(ServerVisibilityState::Local))
-                .run_if(in_state(SingleplayerState::Paused)),
-        )
-        .add_systems(
-            Update,
-            singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
-        )
         .add_observer(on_server_going_public)
         .add_observer(on_server_going_private)
         .add_observer(on_server_is_private)
@@ -99,8 +77,8 @@ impl Plugin for FOSServerPlugin {
         {
             app.register_type::<AppScope>()
                 .add_plugins(StateInspectorPlugin::<AppScope>::default())
-                .register_type::<MenuState>()
-                .add_plugins(StateInspectorPlugin::<MenuState>::default())
+                .register_type::<MenuScreen>()
+                .add_plugins(StateInspectorPlugin::<MenuScreen>::default())
                 .register_type::<SingleplayerState>()
                 .add_plugins(StateInspectorPlugin::<SingleplayerState>::default())
                 .register_type::<ServerVisibilityState>()
