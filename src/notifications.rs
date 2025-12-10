@@ -15,7 +15,7 @@ impl NotifyError {
     }
 }
 
-pub fn on_notify_error(trigger: Trigger<NotifyError>, mut error_message: ResMut<ErrorMessage>) {
+pub fn on_notify_error(trigger: On<NotifyError>, mut error_message: ResMut<ErrorMessage>) {
     error_message.text = trigger.event().0.clone();
     // Auto-close after 10 seconds
     error_message.timeout = Some(Timer::from_seconds(10.0, TimerMode::Once));
@@ -25,7 +25,7 @@ pub fn on_notify_error(trigger: Trigger<NotifyError>, mut error_message: ResMut<
 pub fn error_lifecycle(time: Res<Time>, mut error_message: ResMut<ErrorMessage>) {
     if let Some(timer) = &mut error_message.timeout {
         timer.tick(time.delta());
-        if timer.finished() {
+        if timer.is_finished() {
             error_message.text.clear();
             error_message.timeout = None;
         }
