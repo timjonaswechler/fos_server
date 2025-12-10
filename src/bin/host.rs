@@ -1,3 +1,4 @@
+use bevy::app::AppExit;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
@@ -108,11 +109,20 @@ fn ui_game_menu(
             AppScope::InGame => match *in_game_mode_state.get() {
                 InGameMode::GameMenu => {
                     ui.label("Game Menu");
-                    ui.button("Back").clicked().then(|| {
-                        commands.trigger(SingleplayerStateEvent::RequestTransitionTo(
-                            SingleplayerState::Stopping,
-                        ));
-                    });
+                    ui.button("Back")
+                        .clicked()
+                        .then(|| match *game_mode_state.get() {
+                            GameMode::Singleplayer => {
+                                commands.trigger(SingleplayerStateEvent::RequestTransitionTo(
+                                    SingleplayerState::Stopping,
+                                ));
+                            }
+                            GameMode::Client => {
+                                commands.trigger(ClientStateEvent::RequestTransitionTo(
+                                    ClientState::Disconnecting,
+                                ));
+                            }
+                        });
                 }
                 _ => {} // playing
             },
@@ -131,6 +141,7 @@ fn ui_menu_system(
     multiplayer_menu_state: Option<Res<State<MultiplayerMenuScreen>>>,
     // wiki_menu_state: Res<State<WikiMenuScreen>>,
     // settings_menu_state: Res<State<SettingsMenuScreen>>,
+    mut exit: MessageWriter<AppExit>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Menu").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| match *app_state.get() {
@@ -154,8 +165,8 @@ fn ui_menu_system(
                             commands
                                 .trigger(MainMenuEvent::RequestTransitionTo(MenuScreen::Settings));
                         }
-                        if ui.add_enabled(false, egui::Button::new("Quit")).clicked() {
-                            unreachable!();
+                        if ui.button("Quit").clicked() {
+                            exit.write(AppExit::Success);
                         }
                     });
                 }
