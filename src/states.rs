@@ -17,6 +17,7 @@ impl Plugin for StatesPlugin {
             .add_sub_state::<ClientState>()
             .add_computed_state::<SimulationState>()
             // Transition Handling
+            .add_observer(on_appscope_event)
             .add_observer(on_main_menu_event)
             .add_observer(on_singleplayer_menu_screen_event)
             .add_observer(on_singleplayer_submenu_screen_event)
@@ -30,6 +31,20 @@ impl Plugin for StatesPlugin {
             .add_observer(on_in_game_mode_event)
             .add_observer(on_game_menu_event)
             .add_systems(Update, toggle_game_menu.run_if(in_state(AppScope::InGame)));
+    }
+}
+
+fn on_appscope_event(
+    event: On<AppScopeEvent>,
+    mut state: ResMut<NextState<AppScope>>,
+    mut menu_state: ResMut<NextState<MenuScreen>>,
+) {
+    match *event {
+        AppScopeEvent::RequestTransitionTo(AppScope::Menu) => {
+            state.set(AppScope::Menu);
+            menu_state.set(MenuScreen::Main);
+        }
+        _ => {}
     }
 }
 
@@ -219,8 +234,8 @@ fn on_settings_menu_screen_event(
 fn on_game_mode_event(
     event: On<GameModeEvent>,
     app_state: Res<State<AppScope>>,
-    singleplayer_menu_screen: Res<State<SingleplayerMenuScreen>>,
-    multiplayer_menu_screen: Res<State<MultiplayerMenuScreen>>,
+    singleplayer_menu_screen_opt: Option<Res<State<SingleplayerMenuScreen>>>,
+    multiplayer_menu_screen_opt: Option<Res<State<MultiplayerMenuScreen>>>,
     mut next_app_state: ResMut<NextState<AppScope>>,
     mut next_singleplayer_state: ResMut<NextState<SingleplayerState>>,
     mut next_server_state: ResMut<NextState<ServerVisibilityState>>,
@@ -229,17 +244,46 @@ fn on_game_mode_event(
 ) {
     match *event {
         GameModeEvent::RequestTransitionTo(GameMode::Singleplayer) => {
-            if *app_state.get() == AppScope::Menu
-                && (*singleplayer_menu_screen.get() == SingleplayerMenuScreen::NewGame
-                    || *singleplayer_menu_screen.get() == SingleplayerMenuScreen::LoadGame)
-            {
-                next_app_state.set(AppScope::InGame);
-                next_game_mode.set(GameMode::Singleplayer);
-                next_singleplayer_state.set(SingleplayerState::Starting);
-                next_server_state.set(ServerVisibilityState::Private);
+            // Check Singleplayer Source
+            if let Some(singleplayer_menu_screen) = singleplayer_menu_screen_opt {
+                if *app_state.get() == AppScope::Menu
+                    && (*singleplayer_menu_screen.get() == SingleplayerMenuScreen::NewGame
+                        || *singleplayer_menu_screen.get() == SingleplayerMenuScreen::LoadGame)
+                {
+                    next_app_state.set(AppScope::InGame);
+                    next_game_mode.set(GameMode::Singleplayer);
+                    next_singleplayer_state.set(SingleplayerState::Starting);
+                    next_server_state.set(ServerVisibilityState::Private);
+                    return;
+                }
             }
+
+            // Check Multiplayer Source (Host)
+            if let Some(multiplayer_menu_screen) = multiplayer_menu_screen_opt {
+                if *app_state.get() == AppScope::Menu
+                    && (*multiplayer_menu_screen.get() == MultiplayerMenuScreen::HostNewGame
+                        || *multiplayer_menu_screen.get() == MultiplayerMenuScreen::HostSavedGame)
+                {
+                    next_app_state.set(AppScope::InGame);
+                    next_game_mode.set(GameMode::Singleplayer);
+                    next_singleplayer_state.set(SingleplayerState::Starting);
+                    // Start as PendingPublic, a system will upgrade this to GoingPublic once Singleplayer is Running
+                    next_server_state.set(ServerVisibilityState::PendingPublic);
+                    return;
+                }
+            }
+
+            warn!("Cannot transition to Singleplayer: Invalid source state or menu not active");
         }
         GameModeEvent::RequestTransitionTo(GameMode::Client) => {
+            let multiplayer_menu_screen = match multiplayer_menu_screen_opt {
+                Some(screen) => screen,
+                None => {
+                    warn!("Multiplayer menu screen not found");
+                    return;
+                }
+            };
+
             if *app_state.get() == AppScope::Menu
                 && (*multiplayer_menu_screen.get() == MultiplayerMenuScreen::JoinPublicGame
                     || *multiplayer_menu_screen.get() == MultiplayerMenuScreen::JoinLocalGame)
@@ -360,6 +404,11 @@ fn on_game_menu_event(
 }
 
 #[derive(Event, Debug, Clone, Copy)]
+pub enum AppScopeEvent {
+    RequestTransitionTo(AppScope),
+}
+
+#[derive(Event, Debug, Clone, Copy)]
 pub enum MainMenuEvent {
     RequestTransitionTo(MenuScreen),
 }
@@ -429,7 +478,7 @@ pub enum GameMenuEvent {
 // --- STATE DEFINITIONS ---
 
 /// Der oberste Scope der Anwendung.
-#[derive(Default, States, Debug, Clone, Eq, PartialEq, Hash, Reflect)]
+#[derive(Default, States, Copy, Debug, Clone, Eq, PartialEq, Hash, Reflect)]
 pub enum AppScope {
     #[default]
     Menu,
@@ -544,6 +593,7 @@ pub enum SingleplayerState {
 pub enum ServerVisibilityState {
     #[default]
     Private,
+    PendingPublic,
     GoingPublic,
     Public,
     GoingPrivate,
