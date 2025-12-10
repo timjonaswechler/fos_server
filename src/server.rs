@@ -69,6 +69,7 @@ pub fn on_server_going_public(
         "localsingleplayer",
         "127.0.0.1",
         "::1",
+        // IPv6
     ])
     .expect("all given SANs should be valid DNS names");
     let cert = &identity.certificate_chain().as_slice()[0];

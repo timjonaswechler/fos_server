@@ -34,9 +34,6 @@ impl Plugin for FOSServerPlugin {
         .init_resource::<ClientConnectionConfig>()
         .add_observer(on_notify_error)
         .add_systems(Update, error_lifecycle)
-        .add_observer(on_client_connecting)
-        .add_observer(on_client_connected)
-        .add_observer(on_client_sync_complete)
         // .add_observer(on_client_running)
         // .add_observer(on_client_receive_disconnect)
         .add_systems(

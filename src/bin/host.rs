@@ -49,7 +49,7 @@ pub struct UI;
 // --- UI SYSTEM ---
 
 fn ui_singleplayer_system(
-    mut commands: Commands,
+    mut _commands: Commands,
     mut egui: EguiContexts,
     app_state: Res<State<AppScope>>,
     game_mode_state: Res<State<GameMode>>,
@@ -76,12 +76,10 @@ fn ui_singleplayer_system(
 }
 
 fn ui_client_system(
-    mut commands: Commands,
+    mut _commands: Commands,
     mut egui: EguiContexts,
     app_state: Res<State<AppScope>>,
     game_mode_state: Res<State<GameMode>>,
-    singleplayer_menu_state: Option<Res<State<SingleplayerMenuScreen>>>,
-    multiplayer_menu_state: Option<Res<State<MultiplayerMenuScreen>>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game - Client").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| match *app_state.get() {

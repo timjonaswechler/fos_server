@@ -1,8 +1,7 @@
 use {
     crate::{
-        client::events::InternSyncCompleted,
         states::{ClientState, ClientStateEvent},
-        ErrorMessage, LocalClient, NotifyError,
+        LocalClient, NotifyError,
     },
     aeronet_io::{connection::Disconnect, Session},
     aeronet_webtransport::client::WebTransportClient,
@@ -16,6 +15,10 @@ impl Plugin for ClientLogicPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(on_client_connecting)
             .add_observer(on_client_connected)
+            .add_systems(
+                Update,
+                client_syncing.run_if(in_state(ClientState::Syncing)),
+            )
             .add_observer(on_client_disconnecting);
     }
 }
@@ -27,7 +30,7 @@ pub fn client_discover_server(_commands: Commands) {
 pub fn on_client_connecting(
     event: On<ClientStateEvent>,
     mut commands: Commands,
-    mut target: Local<String>,
+    mut _target: Local<String>,
     mut cert_hash: Local<String>,
     mut session_id: Local<usize>,
 ) {
@@ -39,7 +42,7 @@ pub fn on_client_connecting(
             if target.is_empty() {
                 DEFAULT_TARGET.clone_into(&mut target);
             }
-            let cert_hash_resp = &mut *cert_hash;
+            let _cert_hash_resp = &mut *cert_hash;
             let cert_hash = cert_hash.clone();
             let config = match client_config(cert_hash) {
                 Ok(config) => config,
@@ -61,28 +64,22 @@ pub fn on_client_connecting(
     }
 }
 
-pub fn on_client_connected(
-    trigger: On<Add, Session>,
-    names: Query<&Name>,
-    mut next_state: ResMut<NextState<ClientState>>,
-) {
+pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
     let target = trigger.event_target();
     let _name = names
         .get(target)
         .expect("our session entity should have a name");
 
-    next_state.set(ClientState::Syncing);
+    commands.trigger(ClientStateEvent {
+        transition: ClientState::Syncing,
+    });
 }
 
-pub fn client_syncing(_commands: Commands) {
-    todo!("Implement client sync system");
-}
-
-pub fn on_client_sync_complete(
-    _: On<InternSyncCompleted>,
-    mut next_state: ResMut<NextState<ClientState>>,
-) {
-    next_state.set(ClientState::Running);
+pub fn client_syncing(mut commands: Commands) {
+    info!("TODO: Implement client sync system");
+    commands.trigger(ClientStateEvent {
+        transition: ClientState::Running,
+    });
 }
 
 pub fn on_client_running() {}
@@ -135,23 +132,4 @@ mod helpers {
             .expect("should be a valid idle timeout")
             .build())
     }
-}
-
-pub mod events {
-    use bevy::prelude::*;
-    // Request is a Prefix for User Events or system requests
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestClientConnect;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestClientDisconnect;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestClientRetry;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct RequestResetToMenu;
-
-    #[derive(Event, Debug, Clone, Copy)]
-    pub struct InternSyncCompleted;
 }
