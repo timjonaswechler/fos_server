@@ -13,28 +13,30 @@ pub struct SingleplayerLogicPlugin;
 
 impl Plugin for SingleplayerLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            OnEnter(SingleplayerState::Starting),
-            on_singleplayer_starting,
-        )
-        .add_observer(on_singleplayer_ready)
-        .add_systems(OnEnter(SingleplayerState::Running), on_singleplayer_running)
-        .add_systems(
-            Update,
-            singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
-        );
+        app.add_observer(on_singleplayer_starting)
+            .add_observer(on_singleplayer_ready)
+            .add_observer(on_singleplayer_running)
+            .add_systems(
+                Update,
+                singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
+            );
     }
 }
 
-pub fn on_singleplayer_starting(mut commands: Commands) {
-    let server_entity = commands
-        .spawn((Name::new("Local Server"), LocalSession, LocalServer))
-        .id();
-    let client_entity = commands
-        .spawn((Name::new("Local Client"), LocalSession, LocalClient))
-        .id();
+pub fn on_singleplayer_starting(event: On<SingleplayerStateEvent>, mut commands: Commands) {
+    match event.transition {
+        SingleplayerState::Starting => {
+            let server_entity = commands
+                .spawn((Name::new("Local Server"), LocalSession, LocalServer))
+                .id();
+            let client_entity = commands
+                .spawn((Name::new("Local Client"), LocalSession, LocalClient))
+                .id();
 
-    commands.queue(ChannelIo::open(server_entity, client_entity));
+            commands.queue(ChannelIo::open(server_entity, client_entity));
+        }
+        _ => {}
+    }
 }
 
 pub fn on_singleplayer_ready(
@@ -46,14 +48,19 @@ pub fn on_singleplayer_ready(
         info!("Starting State detected")
     } // TODO: check in which state we are at the moment
       // TODO: add If statement to check if the client and Server is added
-    commands.trigger(SingleplayerStateEvent::RequestTransitionTo(
-        SingleplayerState::Running,
-    ));
+    commands.trigger(SingleplayerStateEvent {
+        transition: SingleplayerState::Running,
+    });
     info!("Singleplayer is ready");
 }
 
-pub fn on_singleplayer_running(mut _commands: Commands) {
-    debug!("Singleplayer is running");
+pub fn on_singleplayer_running(event: On<SingleplayerStateEvent>, mut _commands: Commands) {
+    match event.transition {
+        SingleplayerState::Running => {
+            debug!("Singleplayer is running");
+        }
+        _ => {}
+    }
 }
 
 pub fn singleplayer_stopping(
@@ -101,5 +108,7 @@ pub fn singleplayer_stopping(
         }
     }
     // sixth tick request Main Menu
-    commands.trigger(AppScopeEvent::RequestTransitionTo(AppScope::Menu));
+    commands.trigger(AppScopeEvent {
+        transition: AppScope::Menu,
+    });
 }

@@ -39,7 +39,6 @@ impl Plugin for FOSServerPlugin {
         .add_observer(on_client_sync_complete)
         // .add_observer(on_client_running)
         // .add_observer(on_client_receive_disconnect)
-        .add_observer(on_client_disconnecting)
         .add_systems(
             Update,
             client_syncing.run_if(in_state(ClientState::Syncing)),

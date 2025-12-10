@@ -113,14 +113,14 @@ fn ui_game_menu(
                         .clicked()
                         .then(|| match *game_mode_state.get() {
                             GameMode::Singleplayer => {
-                                commands.trigger(SingleplayerStateEvent::RequestTransitionTo(
-                                    SingleplayerState::Stopping,
-                                ));
+                                commands.trigger(SingleplayerStateEvent {
+                                    transition: SingleplayerState::Stopping,
+                                });
                             }
                             GameMode::Client => {
-                                commands.trigger(ClientStateEvent::RequestTransitionTo(
-                                    ClientState::Disconnecting,
-                                ));
+                                commands.trigger(ClientStateEvent {
+                                    transition: ClientState::Disconnecting,
+                                });
                             }
                         });
                 }
@@ -149,21 +149,24 @@ fn ui_menu_system(
                 MenuScreen::Main => {
                     ui.vertical_centered_justified(|ui| {
                         if ui.button("Singleplayer").clicked() {
-                            commands.trigger(MainMenuEvent::RequestTransitionTo(
-                                MenuScreen::Singleplayer,
-                            ));
+                            commands.trigger(MainMenuEvent {
+                                transition: MenuScreen::Singleplayer,
+                            });
                         }
                         if ui.button("Multiplayer").clicked() {
-                            commands.trigger(MainMenuEvent::RequestTransitionTo(
-                                MenuScreen::Multiplayer,
-                            ));
+                            commands.trigger(MainMenuEvent {
+                                transition: MenuScreen::Multiplayer,
+                            });
                         }
                         if ui.button("Wiki").clicked() {
-                            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuScreen::Wiki));
+                            commands.trigger(MainMenuEvent {
+                                transition: MenuScreen::Wiki,
+                            });
                         }
                         if ui.button("Settings").clicked() {
-                            commands
-                                .trigger(MainMenuEvent::RequestTransitionTo(MenuScreen::Settings));
+                            commands.trigger(MainMenuEvent {
+                                transition: MenuScreen::Settings,
+                            });
                         }
                         if ui.button("Quit").clicked() {
                             exit.write(AppExit::Success);
@@ -176,47 +179,39 @@ fn ui_menu_system(
                             match singleplayer_menu_state.get() {
                                 SingleplayerMenuScreen::Overview => {
                                     if ui.button("New Game").clicked() {
-                                        commands.trigger(
-                                            SingleplayerMenuEvent::RequestTransitionTo(
-                                                SingleplayerMenuScreen::NewGame,
-                                            ),
-                                        );
+                                        commands.trigger(SingleplayerMenuEvent {
+                                            transition: SingleplayerMenuScreen::NewGame,
+                                        });
                                     }
                                     if ui.button("Load Game").clicked() {
-                                        commands.trigger(
-                                            SingleplayerMenuEvent::RequestTransitionTo(
-                                                SingleplayerMenuScreen::LoadGame,
-                                            ),
-                                        );
+                                        commands.trigger(SingleplayerMenuEvent {
+                                            transition: SingleplayerMenuScreen::LoadGame,
+                                        });
                                     }
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(MainMenuEvent::RequestTransitionTo(
-                                            MenuScreen::Main,
-                                        ));
+                                        commands.trigger(MainMenuEvent {
+                                            transition: MenuScreen::Main,
+                                        });
                                     }
                                 }
                                 SingleplayerMenuScreen::NewGame => {
                                     if ui.button("Start").clicked() {
-                                        commands.trigger(GameModeEvent::RequestTransitionTo(
-                                            GameMode::Singleplayer,
-                                        ));
+                                        commands.trigger(GameModeEvent {
+                                            transition: GameMode::Singleplayer,
+                                        });
                                     }
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(
-                                            SingleplayerMenuEvent::RequestTransitionTo(
-                                                SingleplayerMenuScreen::Overview,
-                                            ),
-                                        );
+                                        commands.trigger(SingleplayerMenuEvent {
+                                            transition: SingleplayerMenuScreen::Overview,
+                                        });
                                     }
                                 }
                                 SingleplayerMenuScreen::LoadGame => {
                                     if ui.button("Load").clicked() {}
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(
-                                            SingleplayerMenuEvent::RequestTransitionTo(
-                                                SingleplayerMenuScreen::Overview,
-                                            ),
-                                        );
+                                        commands.trigger(SingleplayerMenuEvent {
+                                            transition: SingleplayerMenuScreen::Overview,
+                                        });
                                     }
                                 }
                             }
@@ -229,85 +224,69 @@ fn ui_menu_system(
                             match multiplayer_menu_state.get() {
                                 MultiplayerMenuScreen::Overview => {
                                     if ui.button("Host new Game").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::HostNewGame,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::HostNewGame,
+                                        });
                                     }
                                     if ui.button("Host saved Game").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::HostNewGame,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::HostNewGame,
+                                        });
                                     }
                                     if ui.button("Join public Game").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::JoinPublicGame,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::JoinPublicGame,
+                                        });
                                     }
                                     if ui.button("Join local Game").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::JoinLocalGame,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::JoinLocalGame,
+                                        });
                                     }
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(MainMenuEvent::RequestTransitionTo(
-                                            MenuScreen::Main,
-                                        ));
+                                        commands.trigger(MainMenuEvent {
+                                            transition: MenuScreen::Main,
+                                        });
                                     }
                                 }
                                 MultiplayerMenuScreen::HostNewGame => {
                                     if ui.button("New Game").clicked() {}
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::Overview,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::Overview,
+                                        });
                                     }
                                 }
                                 MultiplayerMenuScreen::HostSavedGame => {
                                     if ui.button("Load Game").clicked() {}
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::Overview,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::Overview,
+                                        });
                                     }
                                 }
                                 MultiplayerMenuScreen::JoinPublicGame => {
                                     if ui.button("Join Public Game").clicked() {
-                                        commands.trigger(GameModeEvent::RequestTransitionTo(
-                                            GameMode::Client,
-                                        ));
+                                        commands.trigger(GameModeEvent {
+                                            transition: GameMode::Client,
+                                        });
                                     }
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::Overview,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::Overview,
+                                        });
                                     }
                                 }
                                 MultiplayerMenuScreen::JoinLocalGame => {
                                     if ui.button("Join Local Game").clicked() {
-                                        commands.trigger(GameModeEvent::RequestTransitionTo(
-                                            GameMode::Client,
-                                        ));
+                                        commands.trigger(GameModeEvent {
+                                            transition: GameMode::Client,
+                                        });
                                     }
                                     if ui.button("Back").clicked() {
-                                        commands.trigger(
-                                            MultiplayerMenuEvent::RequestTransitionTo(
-                                                MultiplayerMenuScreen::Overview,
-                                            ),
-                                        );
+                                        commands.trigger(MultiplayerMenuEvent {
+                                            transition: MultiplayerMenuScreen::Overview,
+                                        });
                                     }
                                 }
                             }
@@ -317,14 +296,18 @@ fn ui_menu_system(
                 MenuScreen::Wiki => {
                     ui.vertical_centered_justified(|ui| {
                         if ui.button("Back").clicked() {
-                            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuScreen::Main));
+                            commands.trigger(MainMenuEvent {
+                                transition: MenuScreen::Main,
+                            });
                         }
                     });
                 }
                 MenuScreen::Settings => {
                     ui.vertical_centered_justified(|ui| {
                         if ui.button("Back").clicked() {
-                            commands.trigger(MainMenuEvent::RequestTransitionTo(MenuScreen::Main));
+                            commands.trigger(MainMenuEvent {
+                                transition: MenuScreen::Main,
+                            });
                         }
                     });
                 }

@@ -1,46 +1,64 @@
 use {
-    crate::{client::events::InternSyncCompleted, states::ClientState, ErrorMessage, LocalClient, NotifyError},
+    crate::{
+        client::events::InternSyncCompleted,
+        states::{ClientState, ClientStateEvent},
+        ErrorMessage, LocalClient, NotifyError,
+    },
     aeronet_io::{connection::Disconnect, Session},
     aeronet_webtransport::client::WebTransportClient,
     bevy::prelude::*,
-    events::{RequestClientConnect, RequestClientDisconnect},
     helpers::*,
 };
+
+pub struct ClientLogicPlugin;
+
+impl Plugin for ClientLogicPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(on_client_connecting)
+            .add_observer(on_client_connected)
+            .add_observer(on_client_disconnecting);
+    }
+}
 
 pub fn client_discover_server(_commands: Commands) {
     todo!("Implement client discover server system")
 }
 
 pub fn on_client_connecting(
-    _: On<RequestClientConnect>,
+    event: On<ClientStateEvent>,
     mut commands: Commands,
     mut target: Local<String>,
     mut cert_hash: Local<String>,
     mut session_id: Local<usize>,
 ) {
-    const DEFAULT_TARGET: &str = "https://127.0.0.1:25571";
+    match event.transition {
+        ClientState::Connecting => {
+            const DEFAULT_TARGET: &str = "https://127.0.0.1:25571";
 
-    let mut target = String::new();
-    if target.is_empty() {
-        DEFAULT_TARGET.clone_into(&mut target);
-    }
-    let cert_hash_resp = &mut *cert_hash;
-    let cert_hash = cert_hash.clone();
-    let config = match client_config(cert_hash) {
-        Ok(config) => config,
-        Err(err) => {
-            commands.trigger(NotifyError::new(format!(
-                "Failed to create client config: {err:?}"
-            )));
-            return;
+            let mut target = String::new();
+            if target.is_empty() {
+                DEFAULT_TARGET.clone_into(&mut target);
+            }
+            let cert_hash_resp = &mut *cert_hash;
+            let cert_hash = cert_hash.clone();
+            let config = match client_config(cert_hash) {
+                Ok(config) => config,
+                Err(err) => {
+                    commands.trigger(NotifyError::new(format!(
+                        "Failed to create client config: {err:?}"
+                    )));
+                    return;
+                }
+            };
+
+            *session_id += 1;
+            let name = format!("{}. {target}", *session_id);
+            commands
+                .spawn(Name::new(name))
+                .queue(WebTransportClient::connect(config, target));
         }
-    };
-
-    *session_id += 1;
-    let name = format!("{}. {target}", *session_id);
-    commands
-        .spawn(Name::new(name))
-        .queue(WebTransportClient::connect(config, target));
+        _ => {}
+    }
 }
 
 pub fn on_client_connected(
@@ -72,14 +90,17 @@ pub fn on_client_running() {}
 pub fn on_client_receive_disconnect() {}
 
 pub fn on_client_disconnecting(
-    _: On<RequestClientDisconnect>,
+    event: On<ClientStateEvent>,
     mut commands: Commands,
-    mut next_state: ResMut<NextState<ClientState>>,
     client_query: Query<Entity, With<LocalClient>>,
 ) {
-    if let Ok(entity) = client_query.single() {
-        commands.trigger(Disconnect::new(entity, "pressed disconnect button"));
-        next_state.set(ClientState::Disconnecting);
+    match event.transition {
+        ClientState::Disconnecting => {
+            if let Ok(entity) = client_query.single() {
+                commands.trigger(Disconnect::new(entity, "pressed disconnect button"));
+            }
+        }
+        _ => {}
     }
 }
 
