@@ -1,6 +1,6 @@
 use {
     crate::{
-        states::{SingleplayerState, SingleplayerStateEvent},
+        states::{AppScope, AppScopeEvent, SingleplayerState, SingleplayerStateEvent},
         LocalBot, LocalClient, LocalServer, LocalSession,
     },
     aeronet_channel::ChannelIo,
@@ -37,9 +37,15 @@ pub fn on_singleplayer_starting(mut commands: Commands) {
     commands.queue(ChannelIo::open(server_entity, client_entity));
 }
 
-pub fn on_singleplayer_ready(_: On<Add, LocalClient>, mut commands: Commands) {
-    // TODO: check in which state we are at the moment
-    // TODO: add If statement to check if the client and Server is added
+pub fn on_singleplayer_ready(
+    _: On<Add, LocalClient>,
+    mut commands: Commands,
+    current_state: Res<State<SingleplayerState>>,
+) {
+    if current_state.get() == &SingleplayerState::Starting {
+        info!("Starting State detected")
+    } // TODO: check in which state we are at the moment
+      // TODO: add If statement to check if the client and Server is added
     commands.trigger(SingleplayerStateEvent::RequestTransitionTo(
         SingleplayerState::Running,
     ));
@@ -94,4 +100,6 @@ pub fn singleplayer_stopping(
             server_entity.despawn();
         }
     }
+    // sixth tick request Main Menu
+    commands.trigger(AppScopeEvent::RequestTransitionTo(AppScope::Menu));
 }
