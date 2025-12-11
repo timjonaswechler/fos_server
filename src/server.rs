@@ -10,37 +10,39 @@ use {
     },
     bevy::prelude::*,
     core::time::Duration,
+    helpers::{DiscoveryServerPlugin, DISCOVERY_PORT, GAME_PORT, MAGIC},
 };
 
 pub struct ServerLogicPlugin;
 
 impl Plugin for ServerLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            Update,
-            server_pending_going_public.run_if(in_state(ServerVisibilityState::PendingPublic)),
-        )
-        .add_systems(
-            OnEnter(ServerVisibilityState::GoingPublic),
-            on_server_going_public,
-        )
-        .add_systems(
-            Update,
-            check_is_server_public.run_if(in_state(ServerVisibilityState::GoingPublic)),
-        )
-        .add_systems(
-            Update,
-            server_is_running.run_if(in_state(ServerVisibilityState::Public)),
-        )
-        .add_systems(
-            OnEnter(ServerVisibilityState::GoingPrivate),
-            on_server_going_private,
-        )
-        .add_systems(
-            Update,
-            check_is_server_private.run_if(in_state(ServerVisibilityState::GoingPrivate)),
-        )
-        .add_observer(on_server_session_request);
+        app.add_plugins(DiscoveryServerPlugin)
+            .add_systems(
+                Update,
+                server_pending_going_public.run_if(in_state(ServerVisibilityState::PendingPublic)),
+            )
+            .add_systems(
+                OnEnter(ServerVisibilityState::GoingPublic),
+                on_server_going_public,
+            )
+            .add_systems(
+                Update,
+                check_is_server_public.run_if(in_state(ServerVisibilityState::GoingPublic)),
+            )
+            .add_systems(
+                Update,
+                server_is_running.run_if(in_state(ServerVisibilityState::Public)),
+            )
+            .add_systems(
+                OnEnter(ServerVisibilityState::GoingPrivate),
+                on_server_going_private,
+            )
+            .add_systems(
+                Update,
+                check_is_server_private.run_if(in_state(ServerVisibilityState::GoingPrivate)),
+            )
+            .add_observer(on_server_session_request);
     }
 }
 
@@ -199,8 +201,10 @@ pub fn on_server_shutdown_notify_clients() {
 
 pub mod helpers {
     use {
+        crate::states::ServerVisibilityState,
         aeronet_webtransport::server::{SessionRequest, SessionResponse},
         bevy::prelude::*,
+        std::net::UdpSocket,
     };
 
     pub(super) fn handle_server_accept_connection(
@@ -224,21 +228,73 @@ pub mod helpers {
     }
 
     pub mod ports {
-        pub(in crate::server) fn is_server_port_available() {
-            //todo: Detect if port is already in use
-            todo!("Implement is_server_port_available")
+        use std::net::{TcpListener, UdpSocket};
+
+        pub(in crate::server) fn is_server_port_available(port: u16) -> bool {
+            // UDP (für Discovery oder QUIC-ähnliches)
+            if UdpSocket::bind(("0.0.0.0", port)).is_err() {
+                return false;
+            }
+            true
         }
-        pub(in crate::server) fn bind_test() {
-            // TODO: Test binding to a port
-            todo!("Implement bind_test")
+
+        pub(in crate::server) fn bind_test(port: u16) -> bool {
+            TcpListener::bind(("0.0.0.0", port)).is_ok()
         }
-        pub fn find_free_port() {
-            // TODO: Find a free port
-            todo!("Implement find_free_port")
+
+        pub fn find_free_port() -> Option<u16> {
+            // OS gibt freien Port, wenn 0 gebunden wird
+            TcpListener::bind(("127.0.0.1", 0))
+                .ok()
+                .and_then(|sock| sock.local_addr().ok())
+                .map(|addr| addr.port())
         }
+
         pub fn validate_port_range() {
             // TODO: Validate port range
             todo!("Implement validate_port_range")
+        }
+    }
+
+    pub const DISCOVERY_PORT: u16 = 30000;
+    pub const GAME_PORT: u16 = 25571;
+    pub const MAGIC: &[u8] = b"FORGE_DISCOVER_V1";
+
+    #[derive(Resource)]
+    struct DiscoverySocket(UdpSocket);
+
+    pub struct DiscoveryServerPlugin;
+
+    impl Plugin for DiscoveryServerPlugin {
+        fn build(&self, app: &mut App) {
+            app.insert_resource(setup_discovery_socket()).add_systems(
+                Update,
+                discovery_server_system.run_if(in_state(ServerVisibilityState::Public)),
+            );
+        }
+    }
+
+    fn setup_discovery_socket() -> DiscoverySocket {
+        let socket =
+            UdpSocket::bind(("0.0.0.0", DISCOVERY_PORT)).expect("failed to bind discovery socket");
+        socket
+            .set_broadcast(true)
+            .expect("failed to enable broadcast");
+        socket
+            .set_nonblocking(true)
+            .expect("failed to set nonblocking");
+        DiscoverySocket(socket)
+    }
+
+    fn discovery_server_system(socket: Res<DiscoverySocket>) {
+        let mut buf = [0u8; 256];
+        // alle eingehenden Pakete abarbeiten
+        while let Ok((len, src)) = socket.0.recv_from(&mut buf) {
+            if &buf[..len] == MAGIC {
+                // minimale Antwort: Magic + Port
+                let resp = format!("FORGE_RESP_V1;{}", GAME_PORT);
+                let _ = socket.0.send_to(resp.as_bytes(), src);
+            }
         }
     }
 }
