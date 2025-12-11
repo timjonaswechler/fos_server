@@ -3,14 +3,13 @@ pub mod notifications;
 pub mod server;
 pub mod singleplayer;
 pub mod states;
-
 pub use notifications::*;
 
 use {
     aeronet_channel::ChannelIoPlugin,
     aeronet_webtransport::{client::WebTransportClientPlugin, server::WebTransportServerPlugin},
     bevy::prelude::*,
-    client::*,
+    client::ClientLogicPlugin,
     server::ServerLogicPlugin,
     singleplayer::SingleplayerLogicPlugin,
     states::*,
@@ -27,19 +26,14 @@ impl Plugin for FOSServerPlugin {
             StatesPlugin,
             SingleplayerLogicPlugin,
             ServerLogicPlugin,
+            ClientLogicPlugin,
         ))
         .init_resource::<ErrorMessage>()
         .init_resource::<SingleplayerServerConfig>()
         .init_resource::<SingleplayerServerConnectionConfig>()
         .init_resource::<ClientConnectionConfig>()
         .add_observer(on_notify_error)
-        .add_systems(Update, error_lifecycle)
-        // .add_observer(on_client_running)
-        // .add_observer(on_client_receive_disconnect)
-        .add_systems(
-            Update,
-            client_syncing.run_if(in_state(ClientState::Syncing)),
-        );
+        .add_systems(Update, error_lifecycle);
     }
 }
 
