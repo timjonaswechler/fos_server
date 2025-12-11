@@ -55,7 +55,7 @@ fn on_main_menu_event(
     mut menu_state: ResMut<NextState<MenuScreen>>,
     in_game_state: Option<Res<State<GameMode>>>,
 ) {
-    if in_game_state.is_none() {
+    if !in_game_state.is_none() {
         return;
     }
 
@@ -86,10 +86,10 @@ fn on_main_menu_event(
 fn on_singleplayer_menu_screen_event(
     event: On<SingleplayerMenuEvent>,
     app_state: Res<State<AppScope>>,
-    in_game_state: Option<Res<State<GameMode>>>,
+    game_mode_state: Option<Res<State<GameMode>>>,
     mut singleplayer_menu_state: ResMut<NextState<SingleplayerMenuScreen>>,
 ) {
-    if in_game_state.is_some() || *app_state.get() != AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
         return;
     }
 
@@ -115,7 +115,7 @@ fn on_singleplayer_new_game_screen_event(
     new_game_menu_state: Res<State<NewGameMenuScreen>>,
     mut next_new_game_menu_state: ResMut<NextState<NewGameMenuScreen>>,
 ) {
-    if game_mode_state.is_none() && *app_state.get() == AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
         return;
     }
 
@@ -175,7 +175,7 @@ fn on_singleplayer_load_game_screen_event(
     load_game_menu_state: Res<State<LoadGameMenuScreen>>,
     mut next_load_game_menu_state: ResMut<NextState<LoadGameMenuScreen>>,
 ) {
-    if game_mode_state.is_none() && *app_state.get() == AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
         return;
     }
 
@@ -213,10 +213,10 @@ fn on_singleplayer_load_game_screen_event(
 fn on_multiplayer_menu_screen_event(
     event: On<MultiplayerMenuEvent>,
     app_state: Res<State<AppScope>>,
-    in_game_state: Option<Res<State<GameMode>>>,
+    game_mode_state: Option<Res<State<GameMode>>>,
     mut multiplayer_menu_state: ResMut<NextState<MultiplayerMenuScreen>>,
 ) {
-    if in_game_state.is_none() && *app_state.get() == AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
         return;
     }
     match event.transition {
@@ -262,13 +262,13 @@ fn on_settings_menu_screen_event(
 
 fn on_game_mode_event(
     event: On<GameModeEvent>,
+    mut commands: Commands,
     app_state: Res<State<AppScope>>,
     singleplayer_menu_screen_opt: Option<Res<State<SingleplayerMenuScreen>>>,
     multiplayer_menu_screen_opt: Option<Res<State<MultiplayerMenuScreen>>>,
     mut next_app_state: ResMut<NextState<AppScope>>,
     mut next_singleplayer_state: ResMut<NextState<SingleplayerState>>,
     mut next_server_state: ResMut<NextState<ServerVisibilityState>>,
-    mut next_client_state: ResMut<NextState<ClientState>>,
     mut next_game_mode: ResMut<NextState<GameMode>>,
 ) {
     match event.transition {
@@ -317,9 +317,12 @@ fn on_game_mode_event(
                 && (*multiplayer_menu_screen.get() == MultiplayerMenuScreen::JoinPublicGame
                     || *multiplayer_menu_screen.get() == MultiplayerMenuScreen::JoinLocalGame)
             {
+                info!("Transitioning to client");
                 next_app_state.set(AppScope::InGame);
                 next_game_mode.set(GameMode::Client);
-                next_client_state.set(ClientState::Connecting);
+                commands.trigger(ClientStateEvent {
+                    transition: ClientState::Connecting,
+                });
             }
         }
     }
@@ -660,6 +663,7 @@ pub enum ClientState {
     Running,
     Disconnecting,
     Failed,
+    Discovering,
 }
 
 // --- COMPUTED STATES ---
