@@ -1,30 +1,60 @@
 use {
     crate::{
+        server::helpers::{DISCOVERY_PORT, MAGIC},
         states::{ClientState, ClientStateEvent},
         LocalClient, NotifyError,
     },
     aeronet_io::{connection::Disconnect, Session},
     aeronet_webtransport::client::WebTransportClient,
     bevy::prelude::*,
-    helpers::*,
+    helpers::client_config,
+    std::net::UdpSocket,
 };
 
 pub struct ClientLogicPlugin;
 
 impl Plugin for ClientLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(on_client_connecting)
+        app.init_resource::<DiscoveredServers>()
+            .add_observer(on_client_connecting)
             .add_observer(on_client_connected)
             .add_systems(
                 Update,
                 client_syncing.run_if(in_state(ClientState::Syncing)),
             )
-            .add_observer(on_client_disconnecting);
+            .add_observer(on_client_disconnecting)
+            .add_systems(
+                Update,
+                client_discover_server.run_if(in_state(ClientState::Discovering)),
+            );
     }
 }
 
-pub fn client_discover_server(_commands: Commands) {
-    todo!("Implement client discover server system")
+#[derive(Resource, Default)]
+pub struct DiscoveredServers(pub Vec<String>);
+
+pub fn client_discover_server(mut discovered: ResMut<DiscoveredServers>) {
+    let socket = UdpSocket::bind(("0.0.0.0", 0)).expect("bind for discovery client");
+    socket.set_broadcast(true).expect("enable broadcast");
+    socket
+        .set_read_timeout(Some(std::time::Duration::from_millis(200)))
+        .ok();
+
+    // Discovery-Paket senden
+    let _ = socket.send_to(MAGIC, ("255.255.255.255", DISCOVERY_PORT));
+
+    // Antworten einsammeln
+    let mut buf = [0u8; 256];
+    discovered.0.clear();
+    while let Ok((len, src)) = socket.recv_from(&mut buf) {
+        let s = String::from_utf8_lossy(&buf[..len]);
+        if let Some(port_str) = s.strip_prefix("FORGE_RESP_V1;") {
+            if let Ok(port) = port_str.parse::<u16>() {
+                let addr = format!("https://{}:{}", src.ip(), port);
+                discovered.0.push(addr);
+            }
+        }
+    }
 }
 
 pub fn on_client_connecting(
@@ -34,6 +64,7 @@ pub fn on_client_connecting(
     mut cert_hash: Local<String>,
     mut session_id: Local<usize>,
 ) {
+    info!("{:?}", event.transition);
     match event.transition {
         ClientState::Connecting => {
             const DEFAULT_TARGET: &str = "https://127.0.0.1:25571";
@@ -104,6 +135,7 @@ pub fn on_client_disconnecting(
 mod helpers {
     use {
         aeronet_webtransport::{cert, client::ClientConfig, wtransport::tls::Sha256Digest},
+        bevy::prelude::*,
         core::time::Duration,
     };
 
