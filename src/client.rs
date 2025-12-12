@@ -1,14 +1,17 @@
 use {
     crate::{
         server::helpers::{DISCOVERY_PORT, MAGIC},
-        states::{ClientState, ClientStateEvent},
+        states::{AppScope, AppScopeEvent, ClientState, ClientStateEvent, MenuScreen},
         LocalClient, NotifyError,
     },
     aeronet_io::{connection::Disconnect, Session},
     aeronet_webtransport::client::WebTransportClient,
-    bevy::prelude::*,
+    bevy::{
+        prelude::*,
+        tasks::{futures::check_ready, AsyncComputeTaskPool, Task},
+    },
     helpers::client_config,
-    std::net::UdpSocket,
+    std::{net::UdpSocket, time::Duration},
 };
 
 pub struct ClientLogicPlugin;
@@ -16,6 +19,11 @@ pub struct ClientLogicPlugin;
 impl Plugin for ClientLogicPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DiscoveredServers>()
+            .init_resource::<ClientTarget>()
+            .insert_resource(DiscoveryTimer(Timer::from_seconds(
+                2.0,
+                TimerMode::Repeating,
+            )))
             .add_observer(on_client_connecting)
             .add_observer(on_client_connected)
             .add_systems(
@@ -25,54 +33,101 @@ impl Plugin for ClientLogicPlugin {
             .add_observer(on_client_disconnecting)
             .add_systems(
                 Update,
-                client_discover_server.run_if(in_state(ClientState::Discovering)),
+                (client_discover_server, client_discover_server_collect)
+                    .run_if(in_state(MenuScreen::Multiplayer)),
             );
     }
 }
 
 #[derive(Resource, Default)]
+pub struct ClientTarget(pub String);
+
+#[derive(Resource, Default)]
 pub struct DiscoveredServers(pub Vec<String>);
 
-pub fn client_discover_server(mut discovered: ResMut<DiscoveredServers>) {
-    let socket = UdpSocket::bind(("0.0.0.0", 0)).expect("bind for discovery client");
-    socket.set_broadcast(true).expect("enable broadcast");
-    socket
-        .set_read_timeout(Some(std::time::Duration::from_millis(200)))
-        .ok();
+#[derive(Component)]
+pub struct DiscoveryTask(Task<Vec<String>>);
 
-    // Discovery-Paket senden
-    let _ = socket.send_to(MAGIC, ("255.255.255.255", DISCOVERY_PORT));
+#[derive(Resource)]
+pub struct DiscoveryTimer(pub Timer);
 
-    // Antworten einsammeln
-    let mut buf = [0u8; 256];
-    discovered.0.clear();
-    while let Ok((len, src)) = socket.recv_from(&mut buf) {
-        let s = String::from_utf8_lossy(&buf[..len]);
-        if let Some(port_str) = s.strip_prefix("FORGE_RESP_V1;") {
-            if let Ok(port) = port_str.parse::<u16>() {
-                let addr = format!("https://{}:{}", src.ip(), port);
-                discovered.0.push(addr);
+pub fn client_discover_server(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut timer: ResMut<DiscoveryTimer>,
+    query: Query<Entity, With<DiscoveryTask>>,
+) {
+    if !query.is_empty() {
+        return;
+    }
+
+    if !timer.0.tick(time.delta()).is_finished() {
+        return;
+    }
+
+    let thread_pool = AsyncComputeTaskPool::get();
+    let task = thread_pool.spawn(async move {
+        let socket = UdpSocket::bind(("0.0.0.0", 0)).expect("bind for discovery client");
+        socket.set_broadcast(true).expect("enable broadcast");
+        socket
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .ok();
+
+        let _ = socket.send_to(MAGIC, ("255.255.255.255", DISCOVERY_PORT));
+
+        let mut buf = [0u8; 256];
+        let mut result = Vec::new();
+
+        while let Ok((len, src)) = socket.recv_from(&mut buf) {
+            let s = String::from_utf8_lossy(&buf[..len]);
+            if let Some(port_str) = s.strip_prefix("FORGE_RESP_V1;") {
+                if let Ok(port) = port_str.parse::<u16>() {
+                    let addr = format!("https://{}:{}", src.ip(), port);
+                    result.push(addr);
+                }
             }
+        }
+
+        result
+    });
+
+    commands.spawn((Name::new("DiscoveryTask"), DiscoveryTask(task)));
+}
+
+pub fn client_discover_server_collect(
+    mut commands: Commands,
+    mut discovered: ResMut<DiscoveredServers>,
+    mut query: Query<(Entity, &mut DiscoveryTask)>,
+) {
+    for (entity, mut task) in &mut query {
+        if let Some(result) = check_ready(&mut task.0) {
+            discovered.0 = result;
+            commands.entity(entity).despawn();
         }
     }
 }
 
 pub fn on_client_connecting(
     event: On<ClientStateEvent>,
+    discovered: Res<DiscoveredServers>,
+    client_target: Res<ClientTarget>,
     mut commands: Commands,
-    mut _target: Local<String>,
     mut cert_hash: Local<String>,
     mut session_id: Local<usize>,
 ) {
-    info!("{:?}", event.transition);
     match event.transition {
         ClientState::Connecting => {
-            const DEFAULT_TARGET: &str = "https://127.0.0.1:25571";
-
-            let mut target = String::new();
-            if target.is_empty() {
-                DEFAULT_TARGET.clone_into(&mut target);
+            let target = client_target.0.clone();
+            if target.is_empty() || !discovered.0.contains(&target) {
+                commands.trigger(NotifyError::new(format!(
+                    "Server '{target}' not found in discovery list"
+                )));
+                commands.trigger(AppScopeEvent {
+                    transition: AppScope::Menu,
+                });
+                return;
             }
+
             let _cert_hash_resp = &mut *cert_hash;
             let cert_hash = cert_hash.clone();
             let config = match client_config(cert_hash) {

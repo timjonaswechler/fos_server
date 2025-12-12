@@ -1,5 +1,5 @@
-use bevy::app::AppExit;
 use bevy::prelude::*;
+use bevy::{app::AppExit, ecs::error::info};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use fos_server::{states::*, *};
