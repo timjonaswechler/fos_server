@@ -30,6 +30,7 @@ impl Plugin for ServerLogicPlugin {
                 Update,
                 check_is_server_public.run_if(in_state(ServerVisibilityState::GoingPublic)),
             )
+            .add_systems(OnEnter(ServerVisibilityState::Public), on_server_is_running)
             .add_systems(
                 Update,
                 server_is_running.run_if(in_state(ServerVisibilityState::Public)),
@@ -111,6 +112,10 @@ pub fn check_is_server_public(
     }
 }
 
+pub fn on_server_is_running(_: Commands) {
+    info!("WebTransport Server is running");
+}
+
 pub fn server_is_running(
     _commands: Commands,
     server_query: Query<Entity, With<WebTransportServer>>,
@@ -122,7 +127,6 @@ pub fn server_is_running(
             return;
         }
     }
-    info!("WebTransport Server is running");
 }
 
 pub fn on_server_going_private(
@@ -209,13 +213,13 @@ pub mod helpers {
     };
 
     pub(super) fn handle_server_accept_connection(
-        _client: Entity,
-        _server: Entity,
+        client: Entity,
+        server: Entity,
         mut trigger: On<SessionRequest>,
     ) {
-        info!("{{client}} connecting to {{server}} with headers:");
-        for (_header_key, _header_value) in &trigger.headers {
-            info!("  {{header_key}}: {{header_value}}");
+        info!("{client} connecting to {server} with headers:");
+        for (header_key, header_value) in &trigger.headers {
+            info!("  {header_key}: {header_value}");
         }
 
         trigger.respond(SessionResponse::Accepted);
@@ -268,11 +272,28 @@ pub mod helpers {
 
     impl Plugin for DiscoveryServerPlugin {
         fn build(&self, app: &mut App) {
-            app.insert_resource(setup_discovery_socket()).add_systems(
+            app.add_systems(
+                OnEnter(ServerVisibilityState::Public),
+                insert_discovery_socket,
+            );
+            app.add_systems(
+                OnExit(ServerVisibilityState::Public),
+                remove_discovery_socket,
+            );
+
+            app.add_systems(
                 Update,
                 discovery_server_system.run_if(in_state(ServerVisibilityState::Public)),
             );
         }
+    }
+
+    fn insert_discovery_socket(mut commands: Commands) {
+        commands.insert_resource(setup_discovery_socket());
+    }
+
+    fn remove_discovery_socket(mut commands: Commands) {
+        commands.remove_resource::<DiscoverySocket>();
     }
 
     fn setup_discovery_socket() -> DiscoverySocket {
