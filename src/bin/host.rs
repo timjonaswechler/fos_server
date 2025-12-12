@@ -2,7 +2,8 @@ use bevy::app::AppExit;
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use fos_server::{states::*, *};
+use fos_server::client::SetClientTarget;
+use fos_server::{client::DiscoveredServers, states::*, *};
 
 fn main() -> AppExit {
     App::new()
@@ -50,6 +51,7 @@ struct MenuUiParams<'w, 's> {
     menu_state: Res<'w, State<MenuScreen>>,
     singleplayer_menu_state: Option<Res<'w, State<SingleplayerMenuScreen>>>,
     multiplayer_menu_state: Option<Res<'w, State<MultiplayerMenuScreen>>>,
+    discovered_servers: Option<Res<'w, DiscoveredServers>>,
     exit: MessageWriter<'w, AppExit>,
 }
 
@@ -96,12 +98,16 @@ fn ui_client_system(
     mut egui: EguiContexts,
     app_state: Res<State<AppScope>>,
     game_mode_state: Res<State<GameMode>>,
+    client_state: Res<State<ClientState>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game - Client").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| match *app_state.get() {
             AppScope::InGame => match *game_mode_state.get() {
                 GameMode::Client => {
-                    ui.label("Hello");
+                    ui.label(format!(
+                        "States: \n AppScope: {:?}\nGameMode: {:?}\nClientState: {:?}\n",
+                        app_state, game_mode_state, client_state
+                    ));
                 }
                 _ => {} // singleplayer
             },
@@ -178,6 +184,7 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
     let menu_state = &params.menu_state;
     let single = params.singleplayer_menu_state.as_deref();
     let multi = params.multiplayer_menu_state.as_deref();
+    let discovered = params.discovered_servers.as_deref();
 
     // 3. mutables „Action“-Bundle bauen für Commands + Exit
     let mut actions = MenuActions {
@@ -194,7 +201,9 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
             match menu_state.get() {
                 MenuScreen::Main => render_menu_main(ui, &mut actions),
                 MenuScreen::Singleplayer => render_singleplayer_menu(ui, &mut actions, single),
-                MenuScreen::Multiplayer => render_multiplayer_menu(ui, &mut actions, multi),
+                MenuScreen::Multiplayer => {
+                    render_multiplayer_menu(ui, &mut actions, multi, discovered)
+                }
                 MenuScreen::Wiki => render_menu_wiki(ui, &mut actions),
                 MenuScreen::Settings => render_menu_settings(ui, &mut actions),
             }
@@ -300,6 +309,7 @@ fn render_multiplayer_menu(
     ui: &mut egui::Ui,
     actions: &mut MenuActions,
     state: Option<&State<MultiplayerMenuScreen>>,
+    discovered_servers: Option<&DiscoveredServers>,
 ) {
     ui.vertical_centered_justified(|ui| {
         let Some(multi) = state else {
@@ -320,7 +330,7 @@ fn render_multiplayer_menu(
                 render_multiplayer_join_public(ui, actions);
             }
             MultiplayerMenuScreen::JoinLocalGame => {
-                render_multiplayer_join_local(ui, actions);
+                render_multiplayer_join_local(ui, actions, discovered_servers);
             }
         }
     });
@@ -396,8 +406,42 @@ fn render_multiplayer_join_public(ui: &mut egui::Ui, actions: &mut MenuActions) 
     }
 }
 
-fn render_multiplayer_join_local(ui: &mut egui::Ui, actions: &mut MenuActions) {
-    if ui.button("Join Local Game").clicked() {
+fn render_multiplayer_join_local(
+    ui: &mut egui::Ui,
+    actions: &mut MenuActions,
+    discovered_servers: Option<&DiscoveredServers>,
+) {
+    ui.heading("Local Servers");
+
+    match discovered_servers {
+        Some(res) => {
+            let servers = &res.0;
+            if servers.is_empty() {
+                ui.label("No local servers discovered...");
+                if ui.button("🔍 Refresh").clicked() {
+                    // todo Optional: Discovery manuell triggern
+                }
+            } else {
+                ui.separator();
+                for server in servers {
+                    if ui.selectable_label(false, format!("{}", server)).clicked() {
+                        actions.commands.queue(SetClientTarget(server.clone()));
+                    }
+                }
+                ui.separator();
+            }
+        }
+        None => {
+            ui.label("No local servers discovered...");
+            if ui.button("🔍 Refresh").clicked() {
+                // todo: Optional: Discovery manuell triggern
+            }
+        }
+    }
+
+    // todo: if nothing is selected button is disabled
+    ui.add_enabled(false, egui::Button::new("Can't click this"));
+    if ui.button("Join Selected Game").clicked() {
         actions.commands.trigger(GameModeEvent {
             transition: GameMode::Client,
         });
