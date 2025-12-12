@@ -10,7 +10,7 @@ use {
     },
     bevy::prelude::*,
     core::time::Duration,
-    helpers::{DiscoveryServerPlugin, DISCOVERY_PORT, GAME_PORT, MAGIC},
+    helpers::DiscoveryServerPlugin,
 };
 
 pub struct ServerLogicPlugin;
@@ -75,8 +75,9 @@ pub fn on_server_going_public(
     ])
     .expect("all given SANs should be valid DNS names");
     let cert = &identity.certificate_chain().as_slice()[0];
-    let spki_fingerprint = cert::spki_fingerprint_b64(cert).expect("should be a valid certificate");
-    let cert_hash = cert::hash_to_b64(cert.hash());
+    let _spki_fingerprint =
+        cert::spki_fingerprint_b64(cert).expect("should be a valid certificate");
+    let _cert_hash = cert::hash_to_b64(cert.hash());
     info!("************************");
     info!("SPKI FINGERPRINT");
     info!("  {{spki_fingerprint}}");
@@ -208,19 +209,19 @@ pub mod helpers {
     };
 
     pub(super) fn handle_server_accept_connection(
-        client: Entity,
-        server: Entity,
+        _client: Entity,
+        _server: Entity,
         mut trigger: On<SessionRequest>,
     ) {
         info!("{{client}} connecting to {{server}} with headers:");
-        for (header_key, header_value) in &trigger.headers {
+        for (_header_key, _header_value) in &trigger.headers {
             info!("  {{header_key}}: {{header_value}}");
         }
 
         trigger.respond(SessionResponse::Accepted);
     }
 
-    pub(super) fn handle_server_reject_connection() {
+    pub(super) fn _handle_server_reject_connection() {
         // TODO: client UUID or Name is on the server's blacklist
         // TODO: Server password is incorrect
         // TODO: Server is full
@@ -230,7 +231,7 @@ pub mod helpers {
     pub mod ports {
         use std::net::{TcpListener, UdpSocket};
 
-        pub(in crate::server) fn is_server_port_available(port: u16) -> bool {
+        pub(in crate::server) fn _is_server_port_available(port: u16) -> bool {
             // UDP (für Discovery oder QUIC-ähnliches)
             if UdpSocket::bind(("0.0.0.0", port)).is_err() {
                 return false;
@@ -238,7 +239,7 @@ pub mod helpers {
             true
         }
 
-        pub(in crate::server) fn bind_test(port: u16) -> bool {
+        pub(in crate::server) fn _bind_test(port: u16) -> bool {
             TcpListener::bind(("0.0.0.0", port)).is_ok()
         }
 

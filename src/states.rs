@@ -262,7 +262,7 @@ fn on_settings_menu_screen_event(
 
 fn on_game_mode_event(
     event: On<GameModeEvent>,
-    mut commands: Commands,
+    mut _commands: Commands,
     app_state: Res<State<AppScope>>,
     singleplayer_menu_screen_opt: Option<Res<State<SingleplayerMenuScreen>>>,
     multiplayer_menu_screen_opt: Option<Res<State<MultiplayerMenuScreen>>>,
@@ -270,6 +270,7 @@ fn on_game_mode_event(
     mut next_singleplayer_state: ResMut<NextState<SingleplayerState>>,
     mut next_server_state: ResMut<NextState<ServerVisibilityState>>,
     mut next_game_mode: ResMut<NextState<GameMode>>,
+    mut next_client_state: ResMut<NextState<ClientState>>,
 ) {
     match event.transition {
         GameMode::Singleplayer => {
@@ -283,6 +284,7 @@ fn on_game_mode_event(
                     next_game_mode.set(GameMode::Singleplayer);
                     next_singleplayer_state.set(SingleplayerState::Starting);
                     next_server_state.set(ServerVisibilityState::Private);
+
                     return;
                 }
             }
@@ -320,9 +322,7 @@ fn on_game_mode_event(
                 info!("Transitioning to client");
                 next_app_state.set(AppScope::InGame);
                 next_game_mode.set(GameMode::Client);
-                commands.trigger(ClientStateEvent {
-                    transition: ClientState::Connecting,
-                });
+                next_client_state.set(ClientState::Connecting);
             }
         }
     }
@@ -663,7 +663,6 @@ pub enum ClientState {
     Running,
     Disconnecting,
     Failed,
-    Discovering,
 }
 
 // --- COMPUTED STATES ---
