@@ -1,10 +1,11 @@
 use {
     crate::{
+        local::*,
         states::{AppScope, AppScopeEvent, SingleplayerState, SingleplayerStateEvent},
-        LocalBot, LocalClient, LocalServer, LocalSession,
     },
+    aeronet::io::{connection::Disconnect, server::Close},
     aeronet_channel::ChannelIo,
-    aeronet_io::{connection::Disconnect, server::Close},
+    aeronet_replicon::{client::AeronetRepliconClient, server::AeronetRepliconServerPlugin},
     aeronet_webtransport::server::{WebTransportServer, WebTransportServerClient},
     bevy::prelude::*,
 };
@@ -13,16 +14,17 @@ pub struct SingleplayerLogicPlugin;
 
 impl Plugin for SingleplayerLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(
-            OnEnter(SingleplayerState::Starting),
-            on_singleplayer_starting,
-        )
-        .add_observer(on_singleplayer_ready)
-        .add_systems(OnEnter(SingleplayerState::Running), on_singleplayer_running)
-        .add_systems(
-            Update,
-            singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
-        );
+        app.add_plugins(AeronetRepliconServerPlugin)
+            .add_systems(
+                OnEnter(SingleplayerState::Starting),
+                on_singleplayer_starting,
+            )
+            .add_observer(on_singleplayer_ready)
+            .add_systems(OnEnter(SingleplayerState::Running), on_singleplayer_running)
+            .add_systems(
+                Update,
+                singleplayer_stopping.run_if(in_state(SingleplayerState::Stopping)),
+            );
     }
 }
 

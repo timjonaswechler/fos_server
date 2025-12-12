@@ -1,14 +1,18 @@
 use {
     crate::states::{ServerVisibilityEvent, ServerVisibilityState, SingleplayerState},
-    aeronet_io::{
+    aeronet::io::{
         connection::Disconnect,
         server::{Close, Server, ServerEndpoint},
     },
+    aeronet_replicon::server::{AeronetRepliconServer, AeronetRepliconServerPlugin},
     aeronet_webtransport::{
         cert,
-        server::{SessionRequest, WebTransportServer, WebTransportServerClient},
+        server::{
+            SessionRequest, WebTransportServer, WebTransportServerClient, WebTransportServerPlugin,
+        },
     },
     bevy::prelude::*,
+    bevy_replicon::*,
     core::time::Duration,
     helpers::DiscoveryServerPlugin,
 };
@@ -17,7 +21,7 @@ pub struct ServerLogicPlugin;
 
 impl Plugin for ServerLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(DiscoveryServerPlugin)
+        app.add_plugins((WebTransportServerPlugin, DiscoveryServerPlugin))
             .add_systems(
                 Update,
                 server_pending_going_public.run_if(in_state(ServerVisibilityState::PendingPublic)),
@@ -95,7 +99,7 @@ pub fn on_server_going_public(
         .build();
 
     commands
-        .spawn(Name::new("WebTransportServer"))
+        .spawn((Name::new("WebTransportServer"), AeronetRepliconServer))
         .queue(WebTransportServer::open(config));
 }
 

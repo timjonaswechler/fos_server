@@ -1,10 +1,12 @@
 use {
     crate::{
+        local::LocalClient,
         server::helpers::{DISCOVERY_PORT, MAGIC},
         states::{ClientState, ClientStateEvent, MenuScreen},
-        LocalClient, NotifyError,
+        NotifyError,
     },
-    aeronet_io::{connection::Disconnect, Session},
+    aeronet::io::{connection::Disconnect, Session},
+    aeronet_replicon::client::{AeronetRepliconClient, AeronetRepliconClientPlugin},
     aeronet_webtransport::client::WebTransportClient,
     bevy::{
         prelude::*,
@@ -18,24 +20,28 @@ pub struct ClientLogicPlugin;
 
 impl Plugin for ClientLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.init_resource::<DiscoveredServers>()
-            .init_resource::<ClientTarget>()
-            .insert_resource(DiscoveryTimer(Timer::from_seconds(
-                2.0,
-                TimerMode::Repeating,
-            )))
-            .add_systems(OnEnter(ClientState::Connecting), on_client_connecting)
-            .add_observer(on_client_connected)
-            .add_systems(
-                Update,
-                client_syncing.run_if(in_state(ClientState::Syncing)),
-            )
-            .add_observer(on_client_disconnecting)
-            .add_systems(
-                Update,
-                (client_discover_server, client_discover_server_collect)
-                    .run_if(in_state(MenuScreen::Multiplayer)),
-            );
+        app.add_plugins((
+            // replication
+            AeronetRepliconClientPlugin,
+        ))
+        .init_resource::<DiscoveredServers>()
+        .init_resource::<ClientTarget>()
+        .insert_resource(DiscoveryTimer(Timer::from_seconds(
+            2.0,
+            TimerMode::Repeating,
+        )))
+        .add_systems(OnEnter(ClientState::Connecting), on_client_connecting)
+        // .add_observer(on_client_connected)
+        .add_systems(
+            Update,
+            client_syncing.run_if(in_state(ClientState::Syncing)),
+        )
+        .add_observer(on_client_disconnecting)
+        .add_systems(
+            Update,
+            (client_discover_server, client_discover_server_collect)
+                .run_if(in_state(MenuScreen::Multiplayer)),
+        );
     }
 }
 
@@ -138,12 +144,13 @@ pub fn on_client_connecting(
     let name = format!("{}. {target}", *session_id);
     info!("Connecting to server at {:?}", target);
     commands
-        .spawn(Name::new(name))
+        .spawn((Name::new(name), AeronetRepliconClient, LocalClient))
         .queue(WebTransportClient::connect(config, target));
 }
 
 pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
     let target = trigger.event_target();
+
     let name = names.get(target).ok(); // Use .ok() instead of .expect()
     if let Some(name) = name {
         info!("Connected as {}", name.as_str());
