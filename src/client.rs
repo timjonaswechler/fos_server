@@ -1,7 +1,7 @@
 use {
     crate::{
         server::helpers::{DISCOVERY_PORT, MAGIC},
-        states::{AppScope, AppScopeEvent, ClientState, ClientStateEvent, MenuScreen},
+        states::{ClientState, ClientStateEvent, MenuScreen},
         LocalClient, NotifyError,
     },
     aeronet_io::{connection::Disconnect, Session},
@@ -24,7 +24,7 @@ impl Plugin for ClientLogicPlugin {
                 2.0,
                 TimerMode::Repeating,
             )))
-            .add_observer(on_client_connecting)
+            .add_systems(OnEnter(ClientState::Connecting), on_client_connecting)
             .add_observer(on_client_connected)
             .add_systems(
                 Update,
@@ -41,6 +41,14 @@ impl Plugin for ClientLogicPlugin {
 
 #[derive(Resource, Default)]
 pub struct ClientTarget(pub String);
+
+pub struct SetClientTarget(pub String);
+
+impl Command for SetClientTarget {
+    fn apply(self, world: &mut World) {
+        world.insert_resource(ClientTarget(self.0));
+    }
+}
 
 #[derive(Resource, Default)]
 pub struct DiscoveredServers(pub Vec<String>);
@@ -108,54 +116,40 @@ pub fn client_discover_server_collect(
 }
 
 pub fn on_client_connecting(
-    event: On<ClientStateEvent>,
-    discovered: Res<DiscoveredServers>,
-    client_target: Res<ClientTarget>,
     mut commands: Commands,
+    client_target: Res<ClientTarget>,
     mut cert_hash: Local<String>,
     mut session_id: Local<usize>,
 ) {
-    match event.transition {
-        ClientState::Connecting => {
-            let target = client_target.0.clone();
-            if target.is_empty() || !discovered.0.contains(&target) {
-                commands.trigger(NotifyError::new(format!(
-                    "Server '{target}' not found in discovery list"
-                )));
-                commands.trigger(AppScopeEvent {
-                    transition: AppScope::Menu,
-                });
-                return;
-            }
-
-            let _cert_hash_resp = &mut *cert_hash;
-            let cert_hash = cert_hash.clone();
-            let config = match client_config(cert_hash) {
-                Ok(config) => config,
-                Err(err) => {
-                    commands.trigger(NotifyError::new(format!(
-                        "Failed to create client config: {err:?}"
-                    )));
-                    return;
-                }
-            };
-
-            *session_id += 1;
-            let name = format!("{}. {target}", *session_id);
-            commands
-                .spawn(Name::new(name))
-                .queue(WebTransportClient::connect(config, target));
+    let target = client_target.0.clone();
+    let _cert_hash_resp = &mut *cert_hash;
+    let cert_hash = cert_hash.clone();
+    let config = match client_config(cert_hash) {
+        Ok(config) => config,
+        Err(err) => {
+            commands.trigger(NotifyError::new(format!(
+                "Failed to create client config: {err:?}"
+            )));
+            return;
         }
-        _ => {}
-    }
+    };
+
+    *session_id += 1;
+    let name = format!("{}. {target}", *session_id);
+    info!("Connecting to server at {:?}", target);
+    commands
+        .spawn(Name::new(name))
+        .queue(WebTransportClient::connect(config, target));
 }
 
 pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
     let target = trigger.event_target();
-    let _name = names
-        .get(target)
-        .expect("our session entity should have a name");
-
+    let name = names.get(target).ok(); // Use .ok() instead of .expect()
+    if let Some(name) = name {
+        info!("Connected as {}", name.as_str());
+    } else {
+        warn!("Session {} missing Name component", target);
+    }
     commands.trigger(ClientStateEvent {
         transition: ClientState::Syncing,
     });
@@ -199,12 +193,12 @@ mod helpers {
         let config = ClientConfig::builder().with_bind_default();
 
         let config = if cert_hash.is_empty() {
-            #[cfg(feature = "dangerous-configuration")]
+            #[cfg(debug_assertions)]
             {
                 warn!("Connecting with no certificate validation");
                 config.with_no_cert_validation()
             }
-            #[cfg(not(feature = "dangerous-configuration"))]
+            #[cfg(not(debug_assertions))]
             {
                 config.with_server_certificate_hashes([])
             }

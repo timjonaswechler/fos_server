@@ -39,15 +39,7 @@ pub fn on_singleplayer_starting(mut commands: Commands) {
     commands.queue(ChannelIo::open(server_entity, client_entity));
 }
 
-pub fn on_singleplayer_ready(
-    _: On<Add, LocalClient>,
-    mut commands: Commands,
-    current_state: Res<State<SingleplayerState>>,
-) {
-    if current_state.get() == &SingleplayerState::Starting {
-        info!("Starting State detected")
-    }
-
+pub fn on_singleplayer_ready(_: On<Add, LocalClient>, mut commands: Commands) {
     commands.trigger(SingleplayerStateEvent {
         transition: SingleplayerState::Running,
     });
@@ -68,6 +60,7 @@ pub fn singleplayer_stopping(
 ) {
     // TODO: Save world state
     // after saving, we can disconnect clients
+
     // first tick clients will be disconnected
     if !client_query.is_empty() {
         for client in &client_query {
