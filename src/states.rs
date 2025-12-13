@@ -31,7 +31,6 @@ impl Plugin for StatesPlugin {
             .add_observer(on_singleplayer_state_event)
             .add_observer(on_server_visibility_event)
             .add_observer(on_client_state_event)
-            // .add_observer(on_in_game_mode_event)
             .add_observer(on_game_menu_event)
             .add_systems(Update, toggle_game_menu.run_if(in_state(GamePhase::InGame)));
     }
@@ -461,11 +460,6 @@ pub struct SetServerVisibility {
 pub struct SetClientStatus {
     pub transition: ClientStatus,
 }
-
-// #[derive(Event, Debug, Clone, Copy)]
-// pub struct ToggleInGameMode {
-//     pub transition: GameplayFocus,
-// }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct NavigateGameMenu {

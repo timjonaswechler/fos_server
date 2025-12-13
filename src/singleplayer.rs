@@ -107,230 +107,240 @@ pub fn singleplayer_stopping(
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
     use crate::{
         states::{
-            GameplayFocus, MenuContext, NavigateGameMenu, PauseMenu, SessionType, SingleplayerSetup,
+            GameplayFocus, MenuContext, NavigateGameMenu, NavigateMainMenu,
+            NavigateSingleplayerMenu, PauseMenu, SessionType, SingleplayerSetup,
         },
         ChangeGameMode, FOSServerPlugin,
     };
+    use bevy::state::state::FreelyMutableState;
+    use std::fmt::Debug;
 
-    /// Helper function to setup the app with necessary plugins and states
-    fn setup_app() -> App {
-        let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins,
-            bevy::input::InputPlugin,
-            bevy::state::app::StatesPlugin,
-            FOSServerPlugin,
-        ));
-        app
+    /// Extension trait to make tests cleaner and more readable.
+    trait SingleplayerTestExt {
+        /// Initializes the app with minimal plugins and the FOSServerPlugin.
+        fn new_test_app() -> Self;
+
+        /// Moves the app state through the menu to start a singleplayer game using events.
+        fn start_singleplayer(&mut self);
+
+        /// Triggers the stopping sequence via the Game Menu "Exit" event.
+        fn stop_singleplayer(&mut self);
+
+        /// Runs the app for a specified number of frames.
+        fn wait_frames(&mut self, frames: usize);
+
+        /// Asserts that the current state matches the expected value.
+        fn assert_state<S: States + PartialEq + Debug>(&self, expected: S);
+
+        /// Asserts that the NextState matches the expected value.
+        fn assert_next_state<S: FreelyMutableState + PartialEq + Debug>(&self, expected: S);
+
+        /// Asserts that a specific component type has exactly `count` instances in the world.
+        fn assert_entity_count<C: Component>(&mut self, count: usize);
     }
 
-    fn set_in_new_game_state(mut app: App) -> App {
-        // NOTE: FOSServerPlugin already initializes states via StatesPlugin.
+    impl SingleplayerTestExt for App {
+        fn new_test_app() -> Self {
+            let mut app = App::new();
+            app.add_plugins((
+                MinimalPlugins,
+                bevy::input::InputPlugin,
+                bevy::state::app::StatesPlugin,
+                FOSServerPlugin,
+            ));
+            app
+        }
 
-        println!(
-            "Initial State: {:?}",
-            app.world().resource::<State<GamePhase>>()
-        );
+        fn start_singleplayer(&mut self) {
+            // 1. Main Menu -> Singleplayer Menu
+            self.world_mut().trigger(NavigateMainMenu {
+                transition: MenuContext::Singleplayer,
+            });
+            self.update();
 
-        // 1. Trigger transition to Singleplayer via ChangeGameMode
-        // This emulates clicking "Start Game" in the menu.
-        // The observer `on_game_mode_event` in states.rs handles:
-        // - Setting GamePhase::InGame
-        // - Setting SessionType::Singleplayer
-        // - Setting SingleplayerStatus::Starting
-        //
-        // However, `on_game_mode_event` checks if we come from a valid Menu state.
-        // So we must ensure we are in GamePhase::Menu (default) and a valid sub-menu state.
+            // 2. Singleplayer Menu -> New Game
+            self.world_mut().trigger(NavigateSingleplayerMenu {
+                transition: SingleplayerSetup::NewGame,
+            });
+            self.update();
 
-        // Emulate being in the "New Game" menu
-        app.world_mut()
-            .resource_mut::<NextState<MenuContext>>()
-            .set(MenuContext::Singleplayer);
-        app.update();
-        app.world_mut()
-            .resource_mut::<NextState<SingleplayerSetup>>()
-            .set(SingleplayerSetup::NewGame);
-        app.update();
+            // 3. New Game -> Start Game (ChangeGameMode)
+            // Note: In the real UI, this might be a chain of sub-menus (ConfigPlayer -> ConfigWorld...),
+            // but the critical transition to InGame is triggered by ChangeGameMode logic
+            // or the final confirmation in `on_singleplayer_new_game_screen_event`.
+            // For this integration test, we simulate the final "Start" trigger that the UI would send.
 
-        println!(
-            "Pre-Trigger State: GamePhase={:?}, Menu={:?}, SingleMenu={:?}",
-            app.world().resource::<State<GamePhase>>(),
-            app.world().resource::<State<MenuContext>>(),
-            app.world().resource::<State<SingleplayerSetup>>()
-        );
-        app
-    }
+            // To properly simulate the flow as defined in `on_game_mode_event` in states.rs,
+            // we need to be in the correct sub-state (NewGame) which we set above.
+            self.world_mut().trigger(ChangeGameMode {
+                transition: SessionType::Singleplayer,
+            });
 
-    fn set_singleplayer_running(mut app: App) -> App {
-        app.world_mut().trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
-        });
+            // Process the ChangeGameMode event which sets:
+            // - GamePhase::InGame
+            // - SingleplayerStatus::Starting
+            self.update();
 
-        app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::Playing);
+            // Process internal transitions (Starting -> Ready -> Running)
+            // The `on_singleplayer_starting` system spawns entities, then `on_singleplayer_ready` runs.
+            self.update();
+            self.update();
+        }
 
-        app.update();
-        app.update();
-        app
-    }
+        fn stop_singleplayer(&mut self) {
+            // To exit, we must be in the Game Menu or able to trigger the exit action.
+            // We simulate clicking "Exit" in the pause menu.
+            self.world_mut().trigger(NavigateGameMenu {
+                transition: PauseMenu::Exit,
+            });
+            // Initial update to process the trigger
+            self.update();
+        }
 
-    fn set_singleplayer_stopping(mut app: App) -> App {
-        app.world_mut().trigger(SetSingleplayerStatus {
-            transition: SingleplayerStatus::Stopping,
-        });
+        fn wait_frames(&mut self, frames: usize) {
+            for _ in 0..frames {
+                self.update();
+            }
+        }
 
-        app.update();
-        app.update();
-        app
+        fn assert_state<S: States + PartialEq + Debug>(&self, expected: S) {
+            let current = self.world().resource::<State<S>>().get();
+            assert_eq!(
+                current,
+                &expected,
+                "State mismatch for type {}",
+                std::any::type_name::<S>()
+            );
+        }
+
+        fn assert_next_state<S: FreelyMutableState + PartialEq + Debug>(&self, expected: S) {
+            let next = self.world().resource::<NextState<S>>();
+            match next {
+                NextState::Pending(scope) => assert_eq!(scope, &expected, "NextState mismatch"),
+                _ => panic!(
+                    "Expected NextState to be Pending({:?}), but it was {:?}",
+                    expected, next
+                ),
+            }
+        }
+
+        fn assert_entity_count<C: Component>(&mut self, count: usize) {
+            let actual = self.world_mut().query::<&C>().iter(self.world()).len();
+            assert_eq!(
+                actual,
+                count,
+                "Entity count mismatch for {}",
+                std::any::type_name::<C>()
+            );
+        }
     }
 
     #[test]
     fn test_singleplayer_startup() {
-        let mut app = setup_app();
+        let mut app = App::new_test_app();
+        app.start_singleplayer();
 
-        app = set_in_new_game_state(app);
-        app = set_singleplayer_running(app);
+        app.assert_state(GamePhase::InGame);
+        app.assert_state(SessionType::Singleplayer);
+        app.assert_state(SingleplayerStatus::Running);
 
-        println!("Post-Update State:");
-        println!(
-            "  GamePhase: {:?}",
-            app.world().resource::<State<GamePhase>>()
-        );
-        if let Some(gm) = app.world().get_resource::<State<SessionType>>() {
-            println!("  SessionType: {:?}", gm);
-        }
-        if let Some(sp) = app.world().get_resource::<State<SingleplayerStatus>>() {
-            println!("  SingleplayerStatus: {:?}", sp);
-        }
-
-        // Verify entities are spawned
-        assert!(
-            app.world_mut()
-                .query::<&LocalServer>()
-                .iter(app.world())
-                .next()
-                .is_some(),
-            "LocalServer should be spawned"
-        );
-        assert!(
-            app.world_mut()
-                .query::<&LocalClient>()
-                .iter(app.world())
-                .next()
-                .is_some(),
-            "LocalClient should be spawned"
-        );
+        app.assert_entity_count::<LocalServer>(1);
+        app.assert_entity_count::<LocalClient>(1);
     }
 
     #[test]
     fn test_singleplayer_ready_transition() {
-        let mut app = setup_app();
+        let mut app = App::new_test_app();
+        app.start_singleplayer();
 
-        app = set_in_new_game_state(app);
-        app = set_singleplayer_running(app);
-
-        // Check if state requested transition to Running
-        let state = app.world().resource::<State<SingleplayerStatus>>();
-        match state.get() {
-            SingleplayerStatus::Running => assert!(true),
-            _ => panic!("Expected SingleplayerStatus to be Running"),
-        }
+        // Already checked in startup, but explicit here for logic flow
+        app.assert_state(SingleplayerStatus::Running);
     }
 
     #[test]
-    fn test_singleplayer_stopping_sequence() {
-        let mut app = setup_app();
+    fn test_singleplayer_stopping_sequence_full() {
+        let mut app = App::new_test_app();
+        app.start_singleplayer();
 
-        app = set_in_new_game_state(app);
-        app = set_singleplayer_running(app);
+        // Trigger stopping via menu event
+        app.stop_singleplayer();
 
-        app.update(); // Process event
-        app = set_singleplayer_stopping(app);
+        // Run enough frames for the multi-tick despawn logic to complete
+        // (Disconnect -> Close -> Bots -> Client -> Server -> Menu)
+        app.wait_frames(10);
 
-        let next_scope = app.world().resource::<NextState<GamePhase>>();
-        match next_scope {
-            NextState::Pending(scope) => assert_eq!(*scope, GamePhase::Menu),
-            _ => panic!("Expected GamePhase to be pending transition to Menu"),
-        }
+        // Verify everything is gone
+        app.assert_entity_count::<WebTransportServerClient>(0);
+        app.assert_entity_count::<WebTransportServer>(0);
+        app.assert_entity_count::<LocalBot>(0);
+        app.assert_entity_count::<LocalServer>(0);
+        app.assert_entity_count::<LocalClient>(0);
+
+        // Verify return to menu
+        // Since we waited multiple frames, the transition should have been applied.
+        // So we check the CURRENT state, not NextState.
+        app.assert_state(GamePhase::Menu);
     }
 
     #[test]
     fn test_game_menu_toggle() {
-        let mut app = setup_app();
-        app = set_in_new_game_state(app);
-        app = set_singleplayer_running(app);
+        let mut app = App::new_test_app();
+        app.start_singleplayer();
 
-        // Verify Playing
-        assert_eq!(
-            *app.world().resource::<State<GameplayFocus>>().get(),
-            GameplayFocus::Playing
-        );
+        app.assert_state(GameplayFocus::Playing);
 
-        app.update();
-        app.update();
-
-        // === SIMULATE TOGGLE 1: Direkt NextState setzen ===
+        // --- FIRST TOGGLE: Playing -> GameMenu (Direct NextState set, as in original working code) ---
         app.world_mut()
             .resource_mut::<NextState<GameplayFocus>>()
             .set(GameplayFocus::GameMenu);
         app.update(); // State wechselt
-        assert_eq!(
-            *app.world().resource::<State<GameplayFocus>>().get(),
-            GameplayFocus::GameMenu
-        );
+        app.assert_state(GameplayFocus::GameMenu);
 
-        // === SIMULATE TOGGLE 2: Direkt NextState setzen ===
+        // --- SECOND TOGGLE: GameMenu -> Playing (Direct NextState set, as in original working code) ---
         app.world_mut()
             .resource_mut::<NextState<GameplayFocus>>()
             .set(GameplayFocus::Playing);
-        app.update();
-        assert_eq!(
-            *app.world().resource::<State<GameplayFocus>>().get(),
-            GameplayFocus::Playing
-        );
+        app.update(); // State wechselt
+        app.assert_state(GameplayFocus::Playing);
     }
 
     #[test]
     fn test_singleplayer_exit_from_menu() {
-        let mut app = setup_app();
-        app = set_in_new_game_state(app);
-        app = set_singleplayer_running(app);
+        let mut app = App::new_test_app();
+        app.start_singleplayer();
 
-        // Open the menu → DIREKT NextState!
+        // Open Game Menu via direct NextState set (as in original working code)
         app.world_mut()
             .resource_mut::<NextState<GameplayFocus>>()
             .set(GameplayFocus::GameMenu);
         app.update();
 
-        // Trigger Exit (bleibt gleich, funktioniert)
+        // Verify that we are now in GameMenu focus
+        app.assert_state(GameplayFocus::GameMenu);
+
+        // Trigger Exit via Event
         app.world_mut().trigger(NavigateGameMenu {
             transition: PauseMenu::Exit,
         });
+
+        // Process trigger
         app.update();
-        app.update();
 
-        // Rest unverändert...
-        let sp_state = app.world().resource::<State<SingleplayerStatus>>();
-        assert_eq!(
-            *sp_state.get(),
-            SingleplayerStatus::Stopping,
-            "Exit from menu should trigger SingleplayerStatus::Stopping"
-        );
+        app.assert_state(SingleplayerStatus::Stopping);
 
-        for _ in 0..10 {
-            app.update();
-        }
+        // Let the stopping sequence run
+        app.wait_frames(10);
 
-        let app_scope = app.world().resource::<State<GamePhase>>();
-        assert_eq!(
-            *app_scope.get(),
-            GamePhase::Menu,
-            "Should return to GamePhase::Menu after stopping sequence"
-        );
+        app.assert_entity_count::<WebTransportServerClient>(0);
+        app.assert_entity_count::<WebTransportServer>(0);
+        app.assert_entity_count::<LocalBot>(0);
+        app.assert_entity_count::<LocalServer>(0);
+        app.assert_entity_count::<LocalClient>(0);
+
+        // Should return to main menu
+        app.assert_state(GamePhase::Menu);
     }
 }
