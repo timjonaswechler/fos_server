@@ -1,5 +1,5 @@
 use {
-    crate::states::{ServerVisibilityEvent, ServerVisibilityState, SingleplayerState},
+    crate::states::{ServerVisibilityState, SetServerVisibility, SingleplayerState},
     aeronet::io::{
         connection::Disconnect,
         server::{Close, Server, ServerEndpoint},
@@ -58,7 +58,7 @@ pub fn server_pending_going_public(
     if *singleplayer_state.get() == SingleplayerState::Running {
         {
             info!("Singleplayer Running detected, requesting Public transition.");
-            commands.trigger(ServerVisibilityEvent {
+            commands.trigger(SetServerVisibility {
                 transition: ServerVisibilityState::GoingPublic,
             });
         }

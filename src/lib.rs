@@ -7,8 +7,6 @@ pub use notifications::*;
 pub mod local;
 
 use {
-    aeronet_channel::ChannelIoPlugin,
-    aeronet_webtransport::client::WebTransportClientPlugin,
     bevy::prelude::*,
     bevy_replicon::prelude::*,
     client::ClientLogicPlugin,
@@ -26,8 +24,6 @@ pub struct DummyEvent;
 impl Plugin for FOSServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            WebTransportClientPlugin,
-            ChannelIoPlugin,
             StatesPlugin,
             RepliconPlugins,
             SingleplayerLogicPlugin,

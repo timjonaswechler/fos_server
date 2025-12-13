@@ -2,12 +2,12 @@ use {
     crate::{
         local::LocalClient,
         server::helpers::{DISCOVERY_PORT, MAGIC},
-        states::{ClientState, ClientStateEvent, MenuScreen},
+        states::{ClientState, MenuScreen, SetClientStatus},
         NotifyError,
     },
     aeronet::io::{connection::Disconnect, Session},
     aeronet_replicon::client::{AeronetRepliconClient, AeronetRepliconClientPlugin},
-    aeronet_webtransport::client::WebTransportClient,
+    aeronet_webtransport::client::{WebTransportClient, WebTransportClientPlugin},
     bevy::{
         prelude::*,
         tasks::{futures::check_ready, AsyncComputeTaskPool, Task},
@@ -21,6 +21,7 @@ pub struct ClientLogicPlugin;
 impl Plugin for ClientLogicPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            WebTransportClientPlugin,
             // replication
             AeronetRepliconClientPlugin,
         ))
@@ -157,14 +158,14 @@ pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut c
     } else {
         warn!("Session {} missing Name component", target);
     }
-    commands.trigger(ClientStateEvent {
+    commands.trigger(SetClientStatus {
         transition: ClientState::Syncing,
     });
 }
 
 pub fn client_syncing(mut commands: Commands) {
     info!("TODO: Implement client sync system");
-    commands.trigger(ClientStateEvent {
+    commands.trigger(SetClientStatus {
         transition: ClientState::Running,
     });
 }
@@ -174,7 +175,7 @@ pub fn on_client_running() {}
 pub fn on_client_receive_disconnect() {}
 
 pub fn on_client_disconnecting(
-    event: On<ClientStateEvent>,
+    event: On<SetClientStatus>,
     mut commands: Commands,
     client_query: Query<Entity, With<LocalClient>>,
 ) {

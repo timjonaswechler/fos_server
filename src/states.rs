@@ -29,14 +29,14 @@ impl Plugin for StatesPlugin {
             .add_observer(on_singleplayer_state_event)
             .add_observer(on_server_visibility_event)
             .add_observer(on_client_state_event)
-            .add_observer(on_in_game_mode_event)
+            // .add_observer(on_in_game_mode_event)
             .add_observer(on_game_menu_event)
             .add_systems(Update, toggle_game_menu.run_if(in_state(AppScope::InGame)));
     }
 }
 
 fn on_appscope_event(
-    event: On<AppScopeEvent>,
+    event: On<ChangeAppScope>,
     mut state: ResMut<NextState<AppScope>>,
     mut menu_state: ResMut<NextState<MenuScreen>>,
 ) {
@@ -50,7 +50,7 @@ fn on_appscope_event(
 }
 
 fn on_main_menu_event(
-    event: On<MainMenuEvent>,
+    event: On<NavigateMainMenu>,
     mut state: ResMut<NextState<AppScope>>,
     mut menu_state: ResMut<NextState<MenuScreen>>,
     in_game_state: Option<Res<State<GameMode>>>,
@@ -84,7 +84,7 @@ fn on_main_menu_event(
 }
 
 fn on_singleplayer_menu_screen_event(
-    event: On<SingleplayerMenuEvent>,
+    event: On<NavigateSingleplayerMenu>,
     app_state: Res<State<AppScope>>,
     game_mode_state: Option<Res<State<GameMode>>>,
     mut singleplayer_menu_state: ResMut<NextState<SingleplayerMenuScreen>>,
@@ -94,20 +94,14 @@ fn on_singleplayer_menu_screen_event(
     }
 
     match event.transition {
-        SingleplayerMenuScreen::Overview => {
-            singleplayer_menu_state.set(SingleplayerMenuScreen::Overview);
-        }
-        SingleplayerMenuScreen::NewGame => {
-            singleplayer_menu_state.set(SingleplayerMenuScreen::NewGame);
-        }
-        SingleplayerMenuScreen::LoadGame => {
-            singleplayer_menu_state.set(SingleplayerMenuScreen::LoadGame);
+        state => {
+            singleplayer_menu_state.set(state);
         }
     }
 }
 
 fn on_singleplayer_new_game_screen_event(
-    event: On<NewGameSetupEvent>,
+    event: On<ControlNewGameSetup>,
     mut commands: Commands,
     app_state: Res<State<AppScope>>,
     game_mode_state: Option<Res<State<GameMode>>>,
@@ -121,10 +115,10 @@ fn on_singleplayer_new_game_screen_event(
 
     match singleplayer_menu_state.get() {
         SingleplayerMenuScreen::NewGame => match *event {
-            NewGameSetupEvent::Start => {
+            ControlNewGameSetup::Start => {
                 next_new_game_menu_state.set(NewGameMenuScreen::ConfigPlayer);
             }
-            NewGameSetupEvent::Next => match new_game_menu_state.get() {
+            ControlNewGameSetup::Next => match new_game_menu_state.get() {
                 NewGameMenuScreen::ConfigPlayer => {
                     next_new_game_menu_state.set(NewGameMenuScreen::ConfigWorld);
                 }
@@ -132,24 +126,24 @@ fn on_singleplayer_new_game_screen_event(
                     next_new_game_menu_state.set(NewGameMenuScreen::ConfigSave);
                 }
                 NewGameMenuScreen::ConfigSave => {
-                    commands.trigger(GameModeEvent {
+                    commands.trigger(ChangeGameMode {
                         transition: GameMode::Singleplayer,
                     });
                 }
             },
-            NewGameSetupEvent::Confirm => {
-                commands.trigger(GameModeEvent {
+            ControlNewGameSetup::Confirm => {
+                commands.trigger(ChangeGameMode {
                     transition: GameMode::Singleplayer,
                 });
             }
-            NewGameSetupEvent::Cancel => {
-                commands.trigger(SingleplayerMenuEvent {
+            ControlNewGameSetup::Cancel => {
+                commands.trigger(NavigateSingleplayerMenu {
                     transition: SingleplayerMenuScreen::Overview,
                 });
             }
-            NewGameSetupEvent::Back => match new_game_menu_state.get() {
+            ControlNewGameSetup::Back => match new_game_menu_state.get() {
                 NewGameMenuScreen::ConfigPlayer => {
-                    commands.trigger(SingleplayerMenuEvent {
+                    commands.trigger(NavigateSingleplayerMenu {
                         transition: SingleplayerMenuScreen::Overview,
                     });
                 }
@@ -167,7 +161,7 @@ fn on_singleplayer_new_game_screen_event(
 }
 
 fn on_singleplayer_load_game_screen_event(
-    event: On<LoadGameSetupEvent>,
+    event: On<ControlLoadGameSetup>,
     mut commands: Commands,
     app_state: Res<State<AppScope>>,
     game_mode_state: Option<Res<State<GameMode>>>,
@@ -181,25 +175,25 @@ fn on_singleplayer_load_game_screen_event(
 
     match singleplayer_menu_state.get() {
         SingleplayerMenuScreen::LoadGame => match *event {
-            LoadGameSetupEvent::Start => {
+            ControlLoadGameSetup::Start => {
                 next_load_game_menu_state.set(LoadGameMenuScreen::SelectSaveGame);
             }
-            LoadGameSetupEvent::Next => match load_game_menu_state.get() {
+            ControlLoadGameSetup::Next => match load_game_menu_state.get() {
                 _ => {}
             },
-            LoadGameSetupEvent::Confirm => {
-                commands.trigger(GameModeEvent {
+            ControlLoadGameSetup::Confirm => {
+                commands.trigger(ChangeGameMode {
                     transition: GameMode::Singleplayer,
                 });
             }
-            LoadGameSetupEvent::Cancel => {
-                commands.trigger(SingleplayerMenuEvent {
+            ControlLoadGameSetup::Cancel => {
+                commands.trigger(NavigateSingleplayerMenu {
                     transition: SingleplayerMenuScreen::Overview,
                 });
             }
-            LoadGameSetupEvent::Back => match load_game_menu_state.get() {
+            ControlLoadGameSetup::Back => match load_game_menu_state.get() {
                 LoadGameMenuScreen::SelectSaveGame => {
-                    commands.trigger(SingleplayerMenuEvent {
+                    commands.trigger(NavigateSingleplayerMenu {
                         transition: SingleplayerMenuScreen::Overview,
                     });
                 }
@@ -211,7 +205,7 @@ fn on_singleplayer_load_game_screen_event(
 }
 
 fn on_multiplayer_menu_screen_event(
-    event: On<MultiplayerMenuEvent>,
+    event: On<NavigateMultiplayerMenu>,
     app_state: Res<State<AppScope>>,
     game_mode_state: Option<Res<State<GameMode>>>,
     mut multiplayer_menu_state: ResMut<NextState<MultiplayerMenuScreen>>,
@@ -220,48 +214,36 @@ fn on_multiplayer_menu_screen_event(
         return;
     }
     match event.transition {
-        MultiplayerMenuScreen::Overview => {
-            multiplayer_menu_state.set(MultiplayerMenuScreen::Overview);
-        }
-        MultiplayerMenuScreen::HostNewGame => {
-            multiplayer_menu_state.set(MultiplayerMenuScreen::HostNewGame);
-        }
-        MultiplayerMenuScreen::HostSavedGame => {
-            multiplayer_menu_state.set(MultiplayerMenuScreen::HostSavedGame);
-        }
-        MultiplayerMenuScreen::JoinPublicGame => {
-            multiplayer_menu_state.set(MultiplayerMenuScreen::JoinPublicGame);
-        }
-        MultiplayerMenuScreen::JoinLocalGame => {
-            multiplayer_menu_state.set(MultiplayerMenuScreen::JoinLocalGame);
+        state => {
+            multiplayer_menu_state.set(state);
         }
     }
 }
 
 fn on_wiki_menu_screen_event(
-    event: On<WikiMenuEvent>,
-    mut wiki_menu_state: ResMut<NextState<WikiMenuScreen>>,
+    event: On<NavigateWiki>,
+    mut next_state: ResMut<NextState<WikiMenuScreen>>,
 ) {
     match event.transition {
-        WikiMenuScreen::Overview => {
-            wiki_menu_state.set(WikiMenuScreen::Overview);
+        state => {
+            next_state.set(state);
         }
     }
 }
 
 fn on_settings_menu_screen_event(
-    event: On<SettingsMenuEvent>,
-    mut settings_menu_state: ResMut<NextState<SettingsMenuScreen>>,
+    event: On<NavigateSettings>,
+    mut next_state: ResMut<NextState<SettingsMenuScreen>>,
 ) {
     match event.transition {
-        SettingsMenuScreen::Overview => {
-            settings_menu_state.set(SettingsMenuScreen::Overview);
+        state => {
+            next_state.set(state);
         }
     }
 }
 
 fn on_game_mode_event(
-    event: On<GameModeEvent>,
+    event: On<ChangeGameMode>,
     mut _commands: Commands,
     app_state: Res<State<AppScope>>,
     singleplayer_menu_screen_opt: Option<Res<State<SingleplayerMenuScreen>>>,
@@ -300,6 +282,7 @@ fn on_game_mode_event(
                     next_singleplayer_state.set(SingleplayerState::Starting);
                     // Start as PendingPublic, a system will upgrade this to GoingPublic once Singleplayer is Running
                     next_server_state.set(ServerVisibilityState::PendingPublic);
+
                     return;
                 }
             }
@@ -329,27 +312,23 @@ fn on_game_mode_event(
 }
 
 fn on_singleplayer_state_event(
-    event: On<SingleplayerStateEvent>,
-    mut singleplayer_state: ResMut<NextState<SingleplayerState>>,
+    event: On<SetSingleplayerStatus>,
+    mut next_state: ResMut<NextState<SingleplayerState>>,
+    mut next_in_game_mode: ResMut<NextState<InGameMode>>,
 ) {
     match event.transition {
-        SingleplayerState::Starting => {
-            singleplayer_state.set(SingleplayerState::Starting);
-        }
         SingleplayerState::Running => {
-            singleplayer_state.set(SingleplayerState::Running);
+            next_state.set(SingleplayerState::Running);
+            next_in_game_mode.set(InGameMode::Playing);
         }
-        SingleplayerState::Stopping => {
-            singleplayer_state.set(SingleplayerState::Stopping);
-        }
-        SingleplayerState::Failed => {
-            singleplayer_state.set(SingleplayerState::Failed);
+        state => {
+            next_state.set(state);
         }
     }
 }
 
 fn on_server_visibility_event(
-    event: On<ServerVisibilityEvent>,
+    event: On<SetServerVisibility>,
     mut next_state: ResMut<NextState<ServerVisibilityState>>,
 ) {
     match event.transition {
@@ -360,7 +339,7 @@ fn on_server_visibility_event(
 }
 
 fn on_client_state_event(
-    event: On<ClientStateEvent>,
+    event: On<SetClientStatus>,
     mut next_state: ResMut<NextState<ClientState>>,
 ) {
     match event.transition {
@@ -371,48 +350,40 @@ fn on_client_state_event(
 }
 
 fn toggle_game_menu(
-    mut commands: Commands,
+    // ← NORMALES SYSTEM
+    mut next_state: ResMut<NextState<InGameMode>>,
     keys: Res<ButtonInput<KeyCode>>,
-    current_mode: Option<Res<State<InGameMode>>>,
+    current_mode: Res<State<InGameMode>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
-        if let Some(mode) = current_mode {
-            match mode.get() {
-                InGameMode::Playing => {
-                    commands.trigger(InGameModeEvent {
-                        transition: InGameMode::GameMenu,
-                    });
-                }
-                InGameMode::GameMenu => {
-                    commands.trigger(InGameModeEvent {
-                        transition: InGameMode::Playing,
-                    });
-                }
-            }
+        match *current_mode.get() {
+            InGameMode::Playing => next_state.set(InGameMode::GameMenu),
+            InGameMode::GameMenu => next_state.set(InGameMode::Playing),
         }
     }
 }
 
-fn on_in_game_mode_event(
-    event: On<InGameModeEvent>,
-    mut next_in_game_mode: ResMut<NextState<InGameMode>>,
-    mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
-) {
-    match event.transition {
-        InGameMode::Playing => {
-            next_in_game_mode.set(InGameMode::Playing);
-        }
-        InGameMode::GameMenu => {
-            next_in_game_mode.set(InGameMode::GameMenu);
-            // Default to Overview when opening the menu
-            next_game_menu_screen.set(GameMenuScreen::Overview);
-        }
-    }
-}
+// fn on_in_game_mode_event(
+//     event: On<ToggleInGameMode>,
+//     mut next_in_game_mode: ResMut<NextState<InGameMode>>,
+//     mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
+// ) {
+//     match event.transition {
+//         InGameMode::Playing => {
+//             next_in_game_mode.set(InGameMode::Playing);
+//         }
+//         InGameMode::GameMenu => {
+//             next_in_game_mode.set(InGameMode::GameMenu);
+//             // Default to Overview when opening the menu
+//             next_game_menu_screen.set(GameMenuScreen::Overview);
+//         }
+//     }
+// }
 
 fn on_game_menu_event(
-    event: On<GameMenuEvent>,
+    event: On<NavigateGameMenu>,
     mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
+    mut next_in_game_mode: ResMut<NextState<InGameMode>>,
     mut commands: Commands,
 ) {
     match event.transition {
@@ -430,36 +401,33 @@ fn on_game_menu_event(
         }
         GameMenuScreen::Exit => {
             next_game_menu_screen.set(GameMenuScreen::Exit);
-            // Logic to actually exit/disconnect would go here or be triggered by entering this state
-            commands.trigger(MainMenuEvent {
-                transition: MenuScreen::Main,
+            commands.trigger(SetSingleplayerStatus {
+                transition: SingleplayerState::Stopping,
             });
         }
         GameMenuScreen::Resume => {
-            commands.trigger(InGameModeEvent {
-                transition: InGameMode::Playing,
-            });
+            next_in_game_mode.set(InGameMode::Playing);
         }
     }
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct AppScopeEvent {
+pub struct ChangeAppScope {
     pub transition: AppScope,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct MainMenuEvent {
+pub struct NavigateMainMenu {
     pub transition: MenuScreen,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct SingleplayerMenuEvent {
+pub struct NavigateSingleplayerMenu {
     pub transition: SingleplayerMenuScreen,
 }
 
 #[derive(Event, Default, Debug, Clone, Copy)]
-pub enum NewGameSetupEvent {
+pub enum ControlNewGameSetup {
     #[default]
     Start,
     Next,
@@ -470,7 +438,7 @@ pub enum NewGameSetupEvent {
 }
 
 #[derive(Event, Default, Debug, Clone, Copy)]
-pub enum LoadGameSetupEvent {
+pub enum ControlLoadGameSetup {
     #[default]
     Start,
     Next,
@@ -481,47 +449,47 @@ pub enum LoadGameSetupEvent {
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct MultiplayerMenuEvent {
+pub struct NavigateMultiplayerMenu {
     pub transition: MultiplayerMenuScreen,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct WikiMenuEvent {
+pub struct NavigateWiki {
     pub transition: WikiMenuScreen,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct SettingsMenuEvent {
+pub struct NavigateSettings {
     pub transition: SettingsMenuScreen,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct GameModeEvent {
+pub struct ChangeGameMode {
     pub transition: GameMode,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct SingleplayerStateEvent {
+pub struct SetSingleplayerStatus {
     pub transition: SingleplayerState,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct ServerVisibilityEvent {
+pub struct SetServerVisibility {
     pub transition: ServerVisibilityState,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct ClientStateEvent {
+pub struct SetClientStatus {
     pub transition: ClientState,
 }
 
-#[derive(Event, Debug, Clone, Copy)]
-pub struct InGameModeEvent {
-    pub transition: InGameMode,
-}
+// #[derive(Event, Debug, Clone, Copy)]
+// pub struct ToggleInGameMode {
+//     pub transition: InGameMode,
+// }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct GameMenuEvent {
+pub struct NavigateGameMenu {
     pub transition: GameMenuScreen,
 }
 
