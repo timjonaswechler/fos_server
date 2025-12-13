@@ -1,23 +1,25 @@
+// rule: no trigger commands only state changes
+
 use bevy::prelude::*;
 
 pub struct StatesPlugin;
 
 impl Plugin for StatesPlugin {
     fn build(&self, app: &mut App) {
-        app.init_state::<AppScope>()
-            .add_sub_state::<MenuScreen>()
-            .add_sub_state::<SingleplayerMenuScreen>()
-            .add_sub_state::<MultiplayerMenuScreen>()
+        app.init_state::<GamePhase>()
+            .add_sub_state::<MenuContext>()
+            .add_sub_state::<SingleplayerSetup>()
+            .add_sub_state::<MultiplayerSetup>()
             .add_sub_state::<WikiMenuScreen>()
-            .add_sub_state::<GameMode>()
-            .add_sub_state::<InGameMode>()
-            .add_sub_state::<GameMenuScreen>()
-            .add_sub_state::<SingleplayerState>()
-            .add_sub_state::<ServerVisibilityState>()
-            .add_sub_state::<ClientState>()
-            .add_computed_state::<SimulationState>()
+            .add_sub_state::<SessionType>()
+            .add_sub_state::<GameplayFocus>()
+            .add_sub_state::<PauseMenu>()
+            .add_sub_state::<SingleplayerStatus>()
+            .add_sub_state::<ServerVisibility>()
+            .add_sub_state::<ClientStatus>()
+            .add_computed_state::<PhysicsSimulation>()
             // Transition Handling
-            .add_observer(on_appscope_event)
+            .add_observer(on_change_app_scope)
             .add_observer(on_main_menu_event)
             .add_observer(on_singleplayer_menu_screen_event)
             .add_observer(on_singleplayer_new_game_screen_event)
@@ -31,19 +33,19 @@ impl Plugin for StatesPlugin {
             .add_observer(on_client_state_event)
             // .add_observer(on_in_game_mode_event)
             .add_observer(on_game_menu_event)
-            .add_systems(Update, toggle_game_menu.run_if(in_state(AppScope::InGame)));
+            .add_systems(Update, toggle_game_menu.run_if(in_state(GamePhase::InGame)));
     }
 }
 
-fn on_appscope_event(
+fn on_change_app_scope(
     event: On<ChangeAppScope>,
-    mut state: ResMut<NextState<AppScope>>,
-    mut menu_state: ResMut<NextState<MenuScreen>>,
+    mut state: ResMut<NextState<GamePhase>>,
+    mut menu_state: ResMut<NextState<MenuContext>>,
 ) {
     match event.transition {
-        AppScope::Menu => {
-            state.set(AppScope::Menu);
-            menu_state.set(MenuScreen::Main);
+        GamePhase::Menu => {
+            state.set(GamePhase::Menu);
+            menu_state.set(MenuContext::Main);
         }
         _ => {}
     }
@@ -51,45 +53,45 @@ fn on_appscope_event(
 
 fn on_main_menu_event(
     event: On<NavigateMainMenu>,
-    mut state: ResMut<NextState<AppScope>>,
-    mut menu_state: ResMut<NextState<MenuScreen>>,
-    in_game_state: Option<Res<State<GameMode>>>,
+    mut state: ResMut<NextState<GamePhase>>,
+    mut menu_state: ResMut<NextState<MenuContext>>,
+    in_game_state: Option<Res<State<SessionType>>>,
 ) {
     if !in_game_state.is_none() {
         return;
     }
 
     match event.transition {
-        MenuScreen::Main => {
-            state.set(AppScope::Menu);
-            menu_state.set(MenuScreen::Main);
+        MenuContext::Main => {
+            state.set(GamePhase::Menu);
+            menu_state.set(MenuContext::Main);
         }
-        MenuScreen::Singleplayer => {
-            state.set(AppScope::Menu);
-            menu_state.set(MenuScreen::Singleplayer);
+        MenuContext::Singleplayer => {
+            state.set(GamePhase::Menu);
+            menu_state.set(MenuContext::Singleplayer);
         }
-        MenuScreen::Multiplayer => {
-            state.set(AppScope::Menu);
-            menu_state.set(MenuScreen::Multiplayer);
+        MenuContext::Multiplayer => {
+            state.set(GamePhase::Menu);
+            menu_state.set(MenuContext::Multiplayer);
         }
-        MenuScreen::Wiki => {
-            state.set(AppScope::Menu);
-            menu_state.set(MenuScreen::Wiki);
+        MenuContext::Wiki => {
+            state.set(GamePhase::Menu);
+            menu_state.set(MenuContext::Wiki);
         }
-        MenuScreen::Settings => {
-            state.set(AppScope::Menu);
-            menu_state.set(MenuScreen::Settings);
+        MenuContext::Settings => {
+            state.set(GamePhase::Menu);
+            menu_state.set(MenuContext::Settings);
         }
     }
 }
 
 fn on_singleplayer_menu_screen_event(
     event: On<NavigateSingleplayerMenu>,
-    app_state: Res<State<AppScope>>,
-    game_mode_state: Option<Res<State<GameMode>>>,
-    mut singleplayer_menu_state: ResMut<NextState<SingleplayerMenuScreen>>,
+    app_state: Res<State<GamePhase>>,
+    game_mode_state: Option<Res<State<SessionType>>>,
+    mut singleplayer_menu_state: ResMut<NextState<SingleplayerSetup>>,
 ) {
-    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != GamePhase::Menu {
         return;
     }
 
@@ -102,19 +104,20 @@ fn on_singleplayer_menu_screen_event(
 
 fn on_singleplayer_new_game_screen_event(
     event: On<ControlNewGameSetup>,
-    mut commands: Commands,
-    app_state: Res<State<AppScope>>,
-    game_mode_state: Option<Res<State<GameMode>>>,
-    singleplayer_menu_state: Res<State<SingleplayerMenuScreen>>,
+    app_state: Res<State<GamePhase>>,
+    game_mode_state: Option<Res<State<SessionType>>>,
+    singleplayer_menu_state: Res<State<SingleplayerSetup>>,
     new_game_menu_state: Res<State<NewGameMenuScreen>>,
     mut next_new_game_menu_state: ResMut<NextState<NewGameMenuScreen>>,
+    mut next_game_mode: ResMut<NextState<SessionType>>,
+    mut next_singleplayer_menu: ResMut<NextState<SingleplayerSetup>>,
 ) {
-    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != GamePhase::Menu {
         return;
     }
 
     match singleplayer_menu_state.get() {
-        SingleplayerMenuScreen::NewGame => match *event {
+        SingleplayerSetup::NewGame => match *event {
             ControlNewGameSetup::Start => {
                 next_new_game_menu_state.set(NewGameMenuScreen::ConfigPlayer);
             }
@@ -126,26 +129,18 @@ fn on_singleplayer_new_game_screen_event(
                     next_new_game_menu_state.set(NewGameMenuScreen::ConfigSave);
                 }
                 NewGameMenuScreen::ConfigSave => {
-                    commands.trigger(ChangeGameMode {
-                        transition: GameMode::Singleplayer,
-                    });
+                    next_game_mode.set(SessionType::Singleplayer);
                 }
             },
             ControlNewGameSetup::Confirm => {
-                commands.trigger(ChangeGameMode {
-                    transition: GameMode::Singleplayer,
-                });
+                next_game_mode.set(SessionType::Singleplayer);
             }
             ControlNewGameSetup::Cancel => {
-                commands.trigger(NavigateSingleplayerMenu {
-                    transition: SingleplayerMenuScreen::Overview,
-                });
+                next_singleplayer_menu.set(SingleplayerSetup::Overview);
             }
             ControlNewGameSetup::Back => match new_game_menu_state.get() {
                 NewGameMenuScreen::ConfigPlayer => {
-                    commands.trigger(NavigateSingleplayerMenu {
-                        transition: SingleplayerMenuScreen::Overview,
-                    });
+                    next_singleplayer_menu.set(SingleplayerSetup::Overview);
                 }
                 NewGameMenuScreen::ConfigWorld => {
                     next_new_game_menu_state.set(NewGameMenuScreen::ConfigPlayer);
@@ -162,40 +157,31 @@ fn on_singleplayer_new_game_screen_event(
 
 fn on_singleplayer_load_game_screen_event(
     event: On<ControlLoadGameSetup>,
-    mut commands: Commands,
-    app_state: Res<State<AppScope>>,
-    game_mode_state: Option<Res<State<GameMode>>>,
-    singleplayer_menu_state: Res<State<SingleplayerMenuScreen>>,
+    app_state: Res<State<GamePhase>>,
+    game_mode_state: Option<Res<State<SessionType>>>,
+    singleplayer_menu_state: Res<State<SingleplayerSetup>>,
     load_game_menu_state: Res<State<LoadGameMenuScreen>>,
     mut next_load_game_menu_state: ResMut<NextState<LoadGameMenuScreen>>,
+    mut next_game_mode: ResMut<NextState<SessionType>>,
+    mut next_singleplayer_menu: ResMut<NextState<SingleplayerSetup>>,
 ) {
-    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != GamePhase::Menu {
         return;
     }
 
     match singleplayer_menu_state.get() {
-        SingleplayerMenuScreen::LoadGame => match *event {
+        SingleplayerSetup::LoadGame => match *event {
             ControlLoadGameSetup::Start => {
                 next_load_game_menu_state.set(LoadGameMenuScreen::SelectSaveGame);
             }
             ControlLoadGameSetup::Next => match load_game_menu_state.get() {
                 _ => {}
             },
-            ControlLoadGameSetup::Confirm => {
-                commands.trigger(ChangeGameMode {
-                    transition: GameMode::Singleplayer,
-                });
-            }
-            ControlLoadGameSetup::Cancel => {
-                commands.trigger(NavigateSingleplayerMenu {
-                    transition: SingleplayerMenuScreen::Overview,
-                });
-            }
+            ControlLoadGameSetup::Confirm => next_game_mode.set(SessionType::Singleplayer),
+            ControlLoadGameSetup::Cancel => next_singleplayer_menu.set(SingleplayerSetup::Overview),
             ControlLoadGameSetup::Back => match load_game_menu_state.get() {
                 LoadGameMenuScreen::SelectSaveGame => {
-                    commands.trigger(NavigateSingleplayerMenu {
-                        transition: SingleplayerMenuScreen::Overview,
-                    });
+                    next_singleplayer_menu.set(SingleplayerSetup::Overview)
                 }
             },
             _ => {}
@@ -206,11 +192,11 @@ fn on_singleplayer_load_game_screen_event(
 
 fn on_multiplayer_menu_screen_event(
     event: On<NavigateMultiplayerMenu>,
-    app_state: Res<State<AppScope>>,
-    game_mode_state: Option<Res<State<GameMode>>>,
-    mut multiplayer_menu_state: ResMut<NextState<MultiplayerMenuScreen>>,
+    app_state: Res<State<GamePhase>>,
+    game_mode_state: Option<Res<State<SessionType>>>,
+    mut multiplayer_menu_state: ResMut<NextState<MultiplayerSetup>>,
 ) {
-    if game_mode_state.is_some() || *app_state.get() != AppScope::Menu {
+    if game_mode_state.is_some() || *app_state.get() != GamePhase::Menu {
         return;
     }
     match event.transition {
@@ -245,27 +231,27 @@ fn on_settings_menu_screen_event(
 fn on_game_mode_event(
     event: On<ChangeGameMode>,
     mut _commands: Commands,
-    app_state: Res<State<AppScope>>,
-    singleplayer_menu_screen_opt: Option<Res<State<SingleplayerMenuScreen>>>,
-    multiplayer_menu_screen_opt: Option<Res<State<MultiplayerMenuScreen>>>,
-    mut next_app_state: ResMut<NextState<AppScope>>,
-    mut next_singleplayer_state: ResMut<NextState<SingleplayerState>>,
-    mut next_server_state: ResMut<NextState<ServerVisibilityState>>,
-    mut next_game_mode: ResMut<NextState<GameMode>>,
-    mut next_client_state: ResMut<NextState<ClientState>>,
+    app_state: Res<State<GamePhase>>,
+    singleplayer_menu_screen_opt: Option<Res<State<SingleplayerSetup>>>,
+    multiplayer_menu_screen_opt: Option<Res<State<MultiplayerSetup>>>,
+    mut next_app_state: ResMut<NextState<GamePhase>>,
+    mut next_singleplayer_state: ResMut<NextState<SingleplayerStatus>>,
+    mut next_server_state: ResMut<NextState<ServerVisibility>>,
+    mut next_game_mode: ResMut<NextState<SessionType>>,
+    mut next_client_state: ResMut<NextState<ClientStatus>>,
 ) {
     match event.transition {
-        GameMode::Singleplayer => {
+        SessionType::Singleplayer => {
             // Check Singleplayer Source
             if let Some(singleplayer_menu_screen) = singleplayer_menu_screen_opt {
-                if *app_state.get() == AppScope::Menu
-                    && (*singleplayer_menu_screen.get() == SingleplayerMenuScreen::NewGame
-                        || *singleplayer_menu_screen.get() == SingleplayerMenuScreen::LoadGame)
+                if *app_state.get() == GamePhase::Menu
+                    && (*singleplayer_menu_screen.get() == SingleplayerSetup::NewGame
+                        || *singleplayer_menu_screen.get() == SingleplayerSetup::LoadGame)
                 {
-                    next_app_state.set(AppScope::InGame);
-                    next_game_mode.set(GameMode::Singleplayer);
-                    next_singleplayer_state.set(SingleplayerState::Starting);
-                    next_server_state.set(ServerVisibilityState::Private);
+                    next_app_state.set(GamePhase::InGame);
+                    next_game_mode.set(SessionType::Singleplayer);
+                    next_singleplayer_state.set(SingleplayerStatus::Starting);
+                    next_server_state.set(ServerVisibility::Private);
 
                     return;
                 }
@@ -273,15 +259,15 @@ fn on_game_mode_event(
 
             // Check Multiplayer Source (Host)
             if let Some(multiplayer_menu_screen) = multiplayer_menu_screen_opt {
-                if *app_state.get() == AppScope::Menu
-                    && (*multiplayer_menu_screen.get() == MultiplayerMenuScreen::HostNewGame
-                        || *multiplayer_menu_screen.get() == MultiplayerMenuScreen::HostSavedGame)
+                if *app_state.get() == GamePhase::Menu
+                    && (*multiplayer_menu_screen.get() == MultiplayerSetup::HostNewGame
+                        || *multiplayer_menu_screen.get() == MultiplayerSetup::HostSavedGame)
                 {
-                    next_app_state.set(AppScope::InGame);
-                    next_game_mode.set(GameMode::Singleplayer);
-                    next_singleplayer_state.set(SingleplayerState::Starting);
+                    next_app_state.set(GamePhase::InGame);
+                    next_game_mode.set(SessionType::Singleplayer);
+                    next_singleplayer_state.set(SingleplayerStatus::Starting);
                     // Start as PendingPublic, a system will upgrade this to GoingPublic once Singleplayer is Running
-                    next_server_state.set(ServerVisibilityState::PendingPublic);
+                    next_server_state.set(ServerVisibility::PendingPublic);
 
                     return;
                 }
@@ -289,7 +275,7 @@ fn on_game_mode_event(
 
             warn!("Cannot transition to Singleplayer: Invalid source state or menu not active");
         }
-        GameMode::Client => {
+        SessionType::Client => {
             let multiplayer_menu_screen = match multiplayer_menu_screen_opt {
                 Some(screen) => screen,
                 None => {
@@ -298,14 +284,14 @@ fn on_game_mode_event(
                 }
             };
 
-            if *app_state.get() == AppScope::Menu
-                && (*multiplayer_menu_screen.get() == MultiplayerMenuScreen::JoinPublicGame
-                    || *multiplayer_menu_screen.get() == MultiplayerMenuScreen::JoinLocalGame)
+            if *app_state.get() == GamePhase::Menu
+                && (*multiplayer_menu_screen.get() == MultiplayerSetup::JoinPublicGame
+                    || *multiplayer_menu_screen.get() == MultiplayerSetup::JoinLocalGame)
             {
                 info!("Transitioning to client");
-                next_app_state.set(AppScope::InGame);
-                next_game_mode.set(GameMode::Client);
-                next_client_state.set(ClientState::Connecting);
+                next_app_state.set(GamePhase::InGame);
+                next_game_mode.set(SessionType::Client);
+                next_client_state.set(ClientStatus::Connecting);
             }
         }
     }
@@ -313,13 +299,13 @@ fn on_game_mode_event(
 
 fn on_singleplayer_state_event(
     event: On<SetSingleplayerStatus>,
-    mut next_state: ResMut<NextState<SingleplayerState>>,
-    mut next_in_game_mode: ResMut<NextState<InGameMode>>,
+    mut next_state: ResMut<NextState<SingleplayerStatus>>,
+    mut next_in_game_mode: ResMut<NextState<GameplayFocus>>,
 ) {
     match event.transition {
-        SingleplayerState::Running => {
-            next_state.set(SingleplayerState::Running);
-            next_in_game_mode.set(InGameMode::Playing);
+        SingleplayerStatus::Running => {
+            next_state.set(SingleplayerStatus::Running);
+            next_in_game_mode.set(GameplayFocus::Playing);
         }
         state => {
             next_state.set(state);
@@ -329,7 +315,7 @@ fn on_singleplayer_state_event(
 
 fn on_server_visibility_event(
     event: On<SetServerVisibility>,
-    mut next_state: ResMut<NextState<ServerVisibilityState>>,
+    mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
     match event.transition {
         state => {
@@ -340,7 +326,7 @@ fn on_server_visibility_event(
 
 fn on_client_state_event(
     event: On<SetClientStatus>,
-    mut next_state: ResMut<NextState<ClientState>>,
+    mut next_state: ResMut<NextState<ClientStatus>>,
 ) {
     match event.transition {
         state => {
@@ -350,80 +336,73 @@ fn on_client_state_event(
 }
 
 fn toggle_game_menu(
-    // ← NORMALES SYSTEM
-    mut next_state: ResMut<NextState<InGameMode>>,
+    mut next_state: ResMut<NextState<GameplayFocus>>,
     keys: Res<ButtonInput<KeyCode>>,
-    current_mode: Res<State<InGameMode>>,
+    current_mode: Res<State<GameplayFocus>>,
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         match *current_mode.get() {
-            InGameMode::Playing => next_state.set(InGameMode::GameMenu),
-            InGameMode::GameMenu => next_state.set(InGameMode::Playing),
+            GameplayFocus::Playing => next_state.set(GameplayFocus::GameMenu),
+            GameplayFocus::GameMenu => next_state.set(GameplayFocus::Playing),
         }
     }
 }
 
-// fn on_in_game_mode_event(
-//     event: On<ToggleInGameMode>,
-//     mut next_in_game_mode: ResMut<NextState<InGameMode>>,
-//     mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
-// ) {
-//     match event.transition {
-//         InGameMode::Playing => {
-//             next_in_game_mode.set(InGameMode::Playing);
-//         }
-//         InGameMode::GameMenu => {
-//             next_in_game_mode.set(InGameMode::GameMenu);
-//             // Default to Overview when opening the menu
-//             next_game_menu_screen.set(GameMenuScreen::Overview);
-//         }
-//     }
-// }
-
 fn on_game_menu_event(
     event: On<NavigateGameMenu>,
-    mut next_game_menu_screen: ResMut<NextState<GameMenuScreen>>,
-    mut next_in_game_mode: ResMut<NextState<InGameMode>>,
-    mut commands: Commands,
+    mut next_game_menu_screen: ResMut<NextState<PauseMenu>>,
+    mut next_in_game_mode: ResMut<NextState<GameplayFocus>>,
+    game_mode_state: Res<State<SessionType>>,
+    next_client_state: Option<ResMut<NextState<ClientStatus>>>,
+    next_singleplayer_state: Option<ResMut<NextState<SingleplayerStatus>>>,
 ) {
     match event.transition {
-        GameMenuScreen::Overview => {
-            next_game_menu_screen.set(GameMenuScreen::Overview);
+        PauseMenu::Overview => {
+            next_game_menu_screen.set(PauseMenu::Overview);
         }
-        GameMenuScreen::Settings => {
-            next_game_menu_screen.set(GameMenuScreen::Settings);
+        PauseMenu::Settings => {
+            next_game_menu_screen.set(PauseMenu::Settings);
         }
-        GameMenuScreen::Save => {
-            next_game_menu_screen.set(GameMenuScreen::Save);
+        PauseMenu::Save => {
+            next_game_menu_screen.set(PauseMenu::Save);
         }
-        GameMenuScreen::Load => {
-            next_game_menu_screen.set(GameMenuScreen::Load);
+        PauseMenu::Load => {
+            next_game_menu_screen.set(PauseMenu::Load);
         }
-        GameMenuScreen::Exit => {
-            next_game_menu_screen.set(GameMenuScreen::Exit);
-            commands.trigger(SetSingleplayerStatus {
-                transition: SingleplayerState::Stopping,
-            });
+        PauseMenu::Exit => {
+            next_game_menu_screen.set(PauseMenu::Exit);
+            match game_mode_state.get() {
+                SessionType::Singleplayer => {
+                    if let Some(mut singleplayer_state) = next_singleplayer_state {
+                        singleplayer_state.set(SingleplayerStatus::Stopping)
+                    }
+                }
+                SessionType::Client => {
+                    if let Some(mut client_state) = next_client_state {
+                        client_state.set(ClientStatus::Disconnecting)
+                    }
+                }
+            }
         }
-        GameMenuScreen::Resume => {
-            next_in_game_mode.set(InGameMode::Playing);
+        PauseMenu::Resume => {
+            next_in_game_mode.set(GameplayFocus::Playing);
         }
     }
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct ChangeAppScope {
-    pub transition: AppScope,
+    pub transition: GamePhase,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct NavigateMainMenu {
-    pub transition: MenuScreen,
+    pub transition: MenuContext,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct NavigateSingleplayerMenu {
-    pub transition: SingleplayerMenuScreen,
+    pub transition: SingleplayerSetup,
 }
 
 #[derive(Event, Default, Debug, Clone, Copy)]
@@ -450,7 +429,7 @@ pub enum ControlLoadGameSetup {
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct NavigateMultiplayerMenu {
-    pub transition: MultiplayerMenuScreen,
+    pub transition: MultiplayerSetup,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
@@ -465,39 +444,39 @@ pub struct NavigateSettings {
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct ChangeGameMode {
-    pub transition: GameMode,
+    pub transition: SessionType,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct SetSingleplayerStatus {
-    pub transition: SingleplayerState,
+    pub transition: SingleplayerStatus,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct SetServerVisibility {
-    pub transition: ServerVisibilityState,
+    pub transition: ServerVisibility,
 }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct SetClientStatus {
-    pub transition: ClientState,
+    pub transition: ClientStatus,
 }
 
 // #[derive(Event, Debug, Clone, Copy)]
 // pub struct ToggleInGameMode {
-//     pub transition: InGameMode,
+//     pub transition: GameplayFocus,
 // }
 
 #[derive(Event, Debug, Clone, Copy)]
 pub struct NavigateGameMenu {
-    pub transition: GameMenuScreen,
+    pub transition: PauseMenu,
 }
 
 // --- STATE DEFINITIONS ---
 
 /// Der oberste Scope der Anwendung.
 #[derive(Default, States, Copy, Debug, Clone, Eq, PartialEq, Hash, Reflect)]
-pub enum AppScope {
+pub enum GamePhase {
     #[default]
     Menu,
     InGame,
@@ -506,8 +485,8 @@ pub enum AppScope {
 // --- MENU STRUKTUR ---
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(AppScope = AppScope::Menu)]
-pub enum MenuScreen {
+#[source(GamePhase = GamePhase::Menu)]
+pub enum MenuContext {
     #[default]
     Main,
     Singleplayer,
@@ -517,8 +496,8 @@ pub enum MenuScreen {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(MenuScreen = MenuScreen::Singleplayer)]
-pub enum SingleplayerMenuScreen {
+#[source(MenuContext = MenuContext::Singleplayer)]
+pub enum SingleplayerSetup {
     #[default]
     Overview,
     NewGame,
@@ -526,7 +505,7 @@ pub enum SingleplayerMenuScreen {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(SingleplayerMenuScreen = SingleplayerMenuScreen::NewGame)]
+#[source(SingleplayerSetup = SingleplayerSetup::NewGame)]
 pub enum NewGameMenuScreen {
     #[default]
     ConfigPlayer,
@@ -534,15 +513,15 @@ pub enum NewGameMenuScreen {
     ConfigSave,
 }
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(SingleplayerMenuScreen = SingleplayerMenuScreen::LoadGame)]
+#[source(SingleplayerSetup = SingleplayerSetup::LoadGame)]
 pub enum LoadGameMenuScreen {
     #[default]
     SelectSaveGame,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(MenuScreen = MenuScreen::Multiplayer)]
-pub enum MultiplayerMenuScreen {
+#[source(MenuContext = MenuContext::Multiplayer)]
+pub enum MultiplayerSetup {
     #[default]
     Overview,
     HostNewGame,
@@ -552,14 +531,14 @@ pub enum MultiplayerMenuScreen {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(MenuScreen = MenuScreen::Wiki)]
+#[source(MenuContext = MenuContext::Wiki)]
 pub enum WikiMenuScreen {
     #[default]
     Overview,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(MenuScreen = MenuScreen::Settings)]
+#[source(MenuContext = MenuContext::Settings)]
 pub enum SettingsMenuScreen {
     #[default]
     Overview,
@@ -568,24 +547,24 @@ pub enum SettingsMenuScreen {
 // --- INGAME STRUKTUR ---
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(AppScope = AppScope::InGame)]
-pub enum GameMode {
+#[source(GamePhase = GamePhase::InGame)]
+pub enum SessionType {
     #[default]
     Singleplayer,
     Client,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(AppScope = AppScope::InGame)]
-pub enum InGameMode {
+#[source(GamePhase = GamePhase::InGame)]
+pub enum GameplayFocus {
     #[default]
     Playing,
     GameMenu,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(InGameMode = InGameMode::GameMenu)]
-pub enum GameMenuScreen {
+#[source(GameplayFocus = GameplayFocus::GameMenu)]
+pub enum PauseMenu {
     #[default]
     Overview,
     Resume,
@@ -598,8 +577,8 @@ pub enum GameMenuScreen {
 // --- SINGLEPLAYER / HOST SUBSTATES ---
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(GameMode = GameMode::Singleplayer)]
-pub enum SingleplayerState {
+#[source(SessionType = SessionType::Singleplayer)]
+pub enum SingleplayerStatus {
     #[default]
     Starting,
     Running,
@@ -608,8 +587,8 @@ pub enum SingleplayerState {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(GameMode = GameMode::Singleplayer)]
-pub enum ServerVisibilityState {
+#[source(SessionType = SessionType::Singleplayer)]
+pub enum ServerVisibility {
     #[default]
     Private,
     PendingPublic,
@@ -622,8 +601,8 @@ pub enum ServerVisibilityState {
 // --- CLIENT SUBSTATES ---
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
-#[source(GameMode = GameMode::Client)]
-pub enum ClientState {
+#[source(SessionType = SessionType::Client)]
+pub enum ClientStatus {
     #[default]
     Connecting,
     Connected,
@@ -638,35 +617,39 @@ pub enum ClientState {
 /// Dieser State abstrahiert, ob die Spielsimulation (Physik, Zeit, etc.) tatsächlich läuft
 /// oder angehalten ist, unabhängig davon, welches Menü gerade offen ist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Reflect)]
-pub enum SimulationState {
+pub enum PhysicsSimulation {
     Running,
     Paused,
 }
 
-impl ComputedStates for SimulationState {
-    type SourceStates = (InGameMode, GameMode, ServerVisibilityState);
+impl ComputedStates for PhysicsSimulation {
+    type SourceStates = (GameplayFocus, SessionType, ServerVisibility);
 
     fn compute(
-        (in_game_mode, game_mode, server_visibility): (InGameMode, GameMode, ServerVisibilityState),
+        (in_game_mode, game_mode, server_visibility): (
+            GameplayFocus,
+            SessionType,
+            ServerVisibility,
+        ),
     ) -> Option<Self> {
-        // Wenn wir nicht "InGame" sind (also kein InGameMode existiert), ist die Simulation irrelevant oder pausiert.
+        // Wenn wir nicht "InGame" sind (also kein GameplayFocus existiert), ist die Simulation irrelevant oder pausiert.
         // Wir geben hier einfach None zurück oder Paused, je nach gewünschtem Verhalten beim State-Wechsel.
         // Bevy Computed States werden nur berechnet, wenn sich die Source States ändern.
         // Wenn eine Source None ist (weil der SuperState nicht aktiv ist), können wir oft auch None zurückgeben.
         match in_game_mode {
-            InGameMode::Playing => Some(SimulationState::Running),
-            InGameMode::GameMenu => {
+            GameplayFocus::Playing => Some(PhysicsSimulation::Running),
+            GameplayFocus::GameMenu => {
                 match game_mode {
-                    GameMode::Client => {
+                    SessionType::Client => {
                         // Client läuft im Multiplayer immer weiter, auch im Menü
-                        Some(SimulationState::Running)
+                        Some(PhysicsSimulation::Running)
                     }
-                    GameMode::Singleplayer => {
+                    SessionType::Singleplayer => {
                         match server_visibility {
                             // Im lokalen Singleplayer pausiert das Menü das Spiel
-                            ServerVisibilityState::Private => Some(SimulationState::Paused),
+                            ServerVisibility::Private => Some(PhysicsSimulation::Paused),
                             // Wenn der Server öffentlich ist, läuft das Spiel weiter (wie Multiplayer)
-                            _ => Some(SimulationState::Running),
+                            _ => Some(PhysicsSimulation::Running),
                         }
                     }
                 }

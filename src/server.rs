@@ -1,10 +1,10 @@
 use {
-    crate::states::{ServerVisibilityState, SetServerVisibility, SingleplayerState},
+    crate::states::{ServerVisibility, SetServerVisibility, SingleplayerStatus},
     aeronet::io::{
         connection::Disconnect,
         server::{Close, Server, ServerEndpoint},
     },
-    aeronet_replicon::server::{AeronetRepliconServer, AeronetRepliconServerPlugin},
+    aeronet_replicon::server::AeronetRepliconServer,
     aeronet_webtransport::{
         cert,
         server::{
@@ -12,7 +12,6 @@ use {
         },
     },
     bevy::prelude::*,
-    bevy_replicon::*,
     core::time::Duration,
     helpers::DiscoveryServerPlugin,
 };
@@ -24,28 +23,28 @@ impl Plugin for ServerLogicPlugin {
         app.add_plugins((WebTransportServerPlugin, DiscoveryServerPlugin))
             .add_systems(
                 Update,
-                server_pending_going_public.run_if(in_state(ServerVisibilityState::PendingPublic)),
+                server_pending_going_public.run_if(in_state(ServerVisibility::PendingPublic)),
             )
             .add_systems(
-                OnEnter(ServerVisibilityState::GoingPublic),
+                OnEnter(ServerVisibility::GoingPublic),
                 on_server_going_public,
             )
             .add_systems(
                 Update,
-                check_is_server_public.run_if(in_state(ServerVisibilityState::GoingPublic)),
+                check_is_server_public.run_if(in_state(ServerVisibility::GoingPublic)),
             )
-            .add_systems(OnEnter(ServerVisibilityState::Public), on_server_is_running)
+            .add_systems(OnEnter(ServerVisibility::Public), on_server_is_running)
             .add_systems(
                 Update,
-                server_is_running.run_if(in_state(ServerVisibilityState::Public)),
+                server_is_running.run_if(in_state(ServerVisibility::Public)),
             )
             .add_systems(
-                OnEnter(ServerVisibilityState::GoingPrivate),
+                OnEnter(ServerVisibility::GoingPrivate),
                 on_server_going_private,
             )
             .add_systems(
                 Update,
-                check_is_server_private.run_if(in_state(ServerVisibilityState::GoingPrivate)),
+                check_is_server_private.run_if(in_state(ServerVisibility::GoingPrivate)),
             )
             .add_observer(on_server_session_request);
     }
@@ -53,13 +52,13 @@ impl Plugin for ServerLogicPlugin {
 
 pub fn server_pending_going_public(
     mut commands: Commands,
-    singleplayer_state: Res<State<SingleplayerState>>,
+    singleplayer_state: Res<State<SingleplayerStatus>>,
 ) {
-    if *singleplayer_state.get() == SingleplayerState::Running {
+    if *singleplayer_state.get() == SingleplayerStatus::Running {
         {
             info!("Singleplayer Running detected, requesting Public transition.");
             commands.trigger(SetServerVisibility {
-                transition: ServerVisibilityState::GoingPublic,
+                transition: ServerVisibility::GoingPublic,
             });
         }
     }
@@ -67,9 +66,9 @@ pub fn server_pending_going_public(
 
 pub fn on_server_going_public(
     mut commands: Commands,
-    mut next_state: ResMut<NextState<ServerVisibilityState>>,
+    mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
-    next_state.set(ServerVisibilityState::GoingPublic);
+    next_state.set(ServerVisibility::GoingPublic);
     // TODO: Implement User interface infos for server
     // TODO: Implement Port usage detection
     let identity = aeronet_webtransport::wtransport::Identity::self_signed([
@@ -106,12 +105,12 @@ pub fn on_server_going_public(
 pub fn check_is_server_public(
     _commands: Commands,
     server_query: Query<Entity, (With<Server>, With<ServerEndpoint>)>,
-    mut next_state: ResMut<NextState<ServerVisibilityState>>,
+    mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
     if let Ok(_) = server_query.single() {
         {
             info!("WebTransport Server is ready");
-            next_state.set(ServerVisibilityState::Public);
+            next_state.set(ServerVisibility::Public);
         }
     }
 }
@@ -123,11 +122,11 @@ pub fn on_server_is_running(_: Commands) {
 pub fn server_is_running(
     _commands: Commands,
     server_query: Query<Entity, With<WebTransportServer>>,
-    mut next_state: ResMut<NextState<ServerVisibilityState>>,
+    mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
     if server_query.is_empty() {
         {
-            next_state.set(ServerVisibilityState::GoingPrivate);
+            next_state.set(ServerVisibility::GoingPrivate);
             return;
         }
     }
@@ -137,7 +136,7 @@ pub fn on_server_going_private(
     mut commands: Commands,
     client_query: Query<Entity, With<WebTransportServerClient>>,
     server_query: Query<Entity, With<WebTransportServer>>,
-    mut next_state: ResMut<NextState<ServerVisibilityState>>,
+    mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
     info!(
         "Server going down\n Still {} clients connected\n Servers: {} active",
@@ -165,7 +164,7 @@ pub fn on_server_going_private(
     if client_query.is_empty() && server_query.is_empty() {
         {
             info!("Server is down");
-            next_state.set(ServerVisibilityState::Private);
+            next_state.set(ServerVisibility::Private);
         }
     }
 }
@@ -210,7 +209,7 @@ pub fn on_server_shutdown_notify_clients() {
 
 pub mod helpers {
     use {
-        crate::states::ServerVisibilityState,
+        crate::states::ServerVisibility,
         aeronet_webtransport::server::{SessionRequest, SessionResponse},
         bevy::prelude::*,
         std::net::UdpSocket,
@@ -276,18 +275,12 @@ pub mod helpers {
 
     impl Plugin for DiscoveryServerPlugin {
         fn build(&self, app: &mut App) {
-            app.add_systems(
-                OnEnter(ServerVisibilityState::Public),
-                insert_discovery_socket,
-            );
-            app.add_systems(
-                OnExit(ServerVisibilityState::Public),
-                remove_discovery_socket,
-            );
+            app.add_systems(OnEnter(ServerVisibility::Public), insert_discovery_socket);
+            app.add_systems(OnExit(ServerVisibility::Public), remove_discovery_socket);
 
             app.add_systems(
                 Update,
-                discovery_server_system.run_if(in_state(ServerVisibilityState::Public)),
+                discovery_server_system.run_if(in_state(ServerVisibility::Public)),
             );
         }
     }

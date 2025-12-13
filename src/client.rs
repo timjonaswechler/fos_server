@@ -2,7 +2,7 @@ use {
     crate::{
         local::LocalClient,
         server::helpers::{DISCOVERY_PORT, MAGIC},
-        states::{ClientState, MenuScreen, SetClientStatus},
+        states::{ClientStatus, MenuContext, SetClientStatus},
         NotifyError,
     },
     aeronet::io::{connection::Disconnect, Session},
@@ -31,17 +31,17 @@ impl Plugin for ClientLogicPlugin {
             2.0,
             TimerMode::Repeating,
         )))
-        .add_systems(OnEnter(ClientState::Connecting), on_client_connecting)
+        .add_systems(OnEnter(ClientStatus::Connecting), on_client_connecting)
         // .add_observer(on_client_connected)
         .add_systems(
             Update,
-            client_syncing.run_if(in_state(ClientState::Syncing)),
+            client_syncing.run_if(in_state(ClientStatus::Syncing)),
         )
         .add_observer(on_client_disconnecting)
         .add_systems(
             Update,
             (client_discover_server, client_discover_server_collect)
-                .run_if(in_state(MenuScreen::Multiplayer)),
+                .run_if(in_state(MenuContext::Multiplayer)),
         );
     }
 }
@@ -159,14 +159,14 @@ pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut c
         warn!("Session {} missing Name component", target);
     }
     commands.trigger(SetClientStatus {
-        transition: ClientState::Syncing,
+        transition: ClientStatus::Syncing,
     });
 }
 
 pub fn client_syncing(mut commands: Commands) {
     info!("TODO: Implement client sync system");
     commands.trigger(SetClientStatus {
-        transition: ClientState::Running,
+        transition: ClientStatus::Running,
     });
 }
 
@@ -180,7 +180,7 @@ pub fn on_client_disconnecting(
     client_query: Query<Entity, With<LocalClient>>,
 ) {
     match event.transition {
-        ClientState::Disconnecting => {
+        ClientStatus::Disconnecting => {
             if let Ok(entity) = client_query.single() {
                 commands.trigger(Disconnect::new(entity, "pressed disconnect button"));
             }
