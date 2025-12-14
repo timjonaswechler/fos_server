@@ -15,6 +15,7 @@ impl Plugin for StatesPlugin {
             .add_sub_state::<GameplayFocus>()
             .add_sub_state::<PauseMenu>()
             .add_sub_state::<SingleplayerStatus>()
+            .add_sub_state::<SingleplayerShutdownStep>()
             .add_sub_state::<ServerVisibility>()
             .add_sub_state::<ClientStatus>()
             .add_computed_state::<PhysicsSimulation>()
@@ -316,6 +317,7 @@ fn on_server_visibility_event(
     event: On<SetServerVisibility>,
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
+    //TODO: oging public only whenn in Game Menu or PendingPublic State before
     match event.transition {
         state => {
             next_state.set(state);
@@ -354,6 +356,7 @@ fn on_game_menu_event(
     game_mode_state: Res<State<SessionType>>,
     next_client_state: Option<ResMut<NextState<ClientStatus>>>,
     next_singleplayer_state: Option<ResMut<NextState<SingleplayerStatus>>>,
+    next_singleplayer_shutdown_step: Option<ResMut<NextState<SingleplayerShutdownStep>>>,
 ) {
     match event.transition {
         PauseMenu::Overview => {
@@ -374,6 +377,10 @@ fn on_game_menu_event(
                 SessionType::Singleplayer => {
                     if let Some(mut singleplayer_state) = next_singleplayer_state {
                         singleplayer_state.set(SingleplayerStatus::Stopping)
+                    }
+                    if let Some(mut singleplayer_shutdown_step) = next_singleplayer_shutdown_step {
+                        singleplayer_shutdown_step
+                            .set(SingleplayerShutdownStep::DisconnectRemoteClients)
                     }
                 }
                 SessionType::Client => {
@@ -578,6 +585,18 @@ pub enum SingleplayerStatus {
     Running,
     Stopping,
     Failed,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
+#[source(SingleplayerStatus = SingleplayerStatus::Stopping)]
+pub enum SingleplayerShutdownStep {
+    #[default]
+    DisconnectRemoteClients,
+    CloseRemoteServer,
+    DespawnBots,
+    DespawnLocalClient,
+    DespawnLocalServer,
+    Done,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]
