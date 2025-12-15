@@ -15,7 +15,7 @@ bevy = { version = "0.17.2"  }
 aeronet = { version = "0.17.2"}
 aeronet_io = { version = "0.17.2"}
 aeronet_channel = { version = "0.17.2" }
-aeronet_replicon = { path = "../aeronet/crates/aeronet_replicon", features = ["client", "server"] }
+# aeronet_replicon = { version = "0.17.2", features = ["client", "server"] }
 aeronet_webtransport = { version = "0.17.2",features = ["client","server", "dangerous-configuration"] }
 bevy_replicon = { version = "0.37.0" }
 

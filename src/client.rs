@@ -6,7 +6,6 @@ use {
         NotifyError,
     },
     aeronet::io::{connection::Disconnect, Session},
-    aeronet_replicon::client::{AeronetRepliconClient, AeronetRepliconClientPlugin},
     aeronet_webtransport::client::{WebTransportClient, WebTransportClientPlugin},
     bevy::{
         prelude::*,
@@ -20,29 +19,25 @@ pub struct ClientLogicPlugin;
 
 impl Plugin for ClientLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins((
-            WebTransportClientPlugin,
-            // replication
-            AeronetRepliconClientPlugin,
-        ))
-        .init_resource::<DiscoveredServers>()
-        .init_resource::<ClientTarget>()
-        .insert_resource(DiscoveryTimer(Timer::from_seconds(
-            2.0,
-            TimerMode::Repeating,
-        )))
-        .add_systems(OnEnter(ClientStatus::Connecting), on_client_connecting)
-        // .add_observer(on_client_connected)
-        .add_systems(
-            Update,
-            client_syncing.run_if(in_state(ClientStatus::Syncing)),
-        )
-        .add_observer(on_client_disconnecting)
-        .add_systems(
-            Update,
-            (client_discover_server, client_discover_server_collect)
-                .run_if(in_state(MenuContext::Multiplayer)),
-        );
+        app.add_plugins(WebTransportClientPlugin)
+            .init_resource::<DiscoveredServers>()
+            .init_resource::<ClientTarget>()
+            .insert_resource(DiscoveryTimer(Timer::from_seconds(
+                2.0,
+                TimerMode::Repeating,
+            )))
+            .add_systems(OnEnter(ClientStatus::Connecting), on_client_connecting)
+            // .add_observer(on_client_connected)
+            .add_systems(
+                Update,
+                client_syncing.run_if(in_state(ClientStatus::Syncing)),
+            )
+            .add_observer(on_client_disconnecting)
+            .add_systems(
+                Update,
+                (client_discover_server, client_discover_server_collect)
+                    .run_if(in_state(MenuContext::Multiplayer)),
+            );
     }
 }
 
@@ -145,7 +140,7 @@ pub fn on_client_connecting(
     let name = format!("{}. {target}", *session_id);
     info!("Connecting to server at {:?}", target);
     commands
-        .spawn((Name::new(name), AeronetRepliconClient, LocalClient))
+        .spawn((Name::new(name), LocalClient))
         .queue(WebTransportClient::connect(config, target));
 }
 

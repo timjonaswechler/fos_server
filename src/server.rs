@@ -2,9 +2,8 @@ use {
     crate::states::{ServerVisibility, SetServerVisibility, SingleplayerStatus},
     aeronet::io::{
         connection::Disconnect,
-        server::{Close, Server, ServerEndpoint},
+        server::{Close, Closed, Server, ServerEndpoint},
     },
-    aeronet_replicon::server::AeronetRepliconServer,
     aeronet_webtransport::{
         cert,
         server::{
@@ -42,10 +41,11 @@ impl Plugin for ServerLogicPlugin {
                 OnEnter(ServerVisibility::GoingPrivate),
                 on_server_going_private,
             )
-            .add_systems(
-                Update,
-                check_is_server_private.run_if(in_state(ServerVisibility::GoingPrivate)),
-            )
+            // .add_systems(
+            //     Update,
+            //     check_is_server_private.run_if(in_state(ServerVisibility::GoingPrivate)),
+            // )
+            .add_observer(on_check_is_server_private)
             .add_observer(on_server_session_request);
     }
 }
@@ -82,12 +82,12 @@ pub fn on_server_going_public(
     let _spki_fingerprint =
         cert::spki_fingerprint_b64(cert).expect("should be a valid certificate");
     let _cert_hash = cert::hash_to_b64(cert.hash());
-    print!("************************");
-    print!("SPKI FINGERPRINT");
-    print!("  {{spki_fingerprint}}");
-    print!("CERTIFICATE HASH");
-    print!("  {{cert_hash}}");
-    print!("************************");
+    println!("************************");
+    println!("SPKI FINGERPRINT");
+    println!("  {{spki_fingerprint}}");
+    println!("CERTIFICATE HASH");
+    println!("  {{cert_hash}}");
+    println!("************************");
 
     let config = aeronet_webtransport::wtransport::ServerConfig::builder()
         .with_bind_default(25571)
@@ -98,7 +98,7 @@ pub fn on_server_going_public(
         .build();
 
     commands
-        .spawn((Name::new("WebTransportServer"), AeronetRepliconServer))
+        .spawn(Name::new("WebTransportServer"))
         .queue(WebTransportServer::open(config));
 }
 
@@ -171,14 +171,24 @@ pub fn on_server_going_private(
 }
 
 pub fn check_is_server_private(
-    _commands: Commands,
+    mut commands: Commands,
     server_query: Query<Entity, (With<Server>, With<ServerEndpoint>)>,
 ) {
     if server_query.is_empty() {
         {
             info!("Closed is triggered");
+            commands.trigger(SetServerVisibility {
+                transition: ServerVisibility::Private,
+            });
         }
     }
+}
+
+pub fn on_check_is_server_private(_: On<Closed>, mut commands: Commands) {
+    info!("Closed is triggered");
+    commands.trigger(SetServerVisibility {
+        transition: ServerVisibility::Private,
+    });
 }
 
 pub fn on_server_session_request(trigger: On<SessionRequest>, clients: Query<&ChildOf>) {
@@ -527,50 +537,50 @@ mod tests {
         app.assert_entity_count::<WebTransportServer>(1);
     }
 
-    // #[test]
-    // fn test_singleplayer_server_startup_from_loaded_game() {
-    //     let mut app = App::new_test_app();
-    //     app.start_singleplayer_loaded_game();
+    #[test]
+    fn test_singleplayer_server_startup_from_loaded_game() {
+        let mut app = App::new_test_app();
+        app.start_singleplayer_loaded_game();
 
-    //     app.assert_state(GamePhase::InGame);
-    //     app.assert_state(SessionType::Singleplayer);
-    //     app.assert_state(SingleplayerStatus::Running);
-    //     app.assert_state(ServerVisibility::Private);
+        app.assert_state(GamePhase::InGame);
+        app.assert_state(SessionType::Singleplayer);
+        app.assert_state(SingleplayerStatus::Running);
+        app.assert_state(ServerVisibility::Private);
 
-    //     app.assert_entity_count::<LocalServer>(1);
-    //     app.assert_entity_count::<LocalClient>(1);
+        app.assert_entity_count::<LocalServer>(1);
+        app.assert_entity_count::<LocalClient>(1);
 
-    //     app.world_mut()
-    //         .resource_mut::<NextState<GameplayFocus>>()
-    //         .set(GameplayFocus::GameMenu);
-    //     app.update();
-    //     app.assert_state(GameplayFocus::GameMenu);
-    //     app.world_mut().trigger(SetServerVisibility {
-    //         transition: ServerVisibility::GoingPublic,
-    //     });
+        app.world_mut()
+            .resource_mut::<NextState<GameplayFocus>>()
+            .set(GameplayFocus::GameMenu);
+        app.update();
+        app.assert_state(GameplayFocus::GameMenu);
+        app.world_mut().trigger(SetServerVisibility {
+            transition: ServerVisibility::GoingPublic,
+        });
 
-    //     app.update();
-    //     app.assert_state(ServerVisibility::GoingPublic);
-    //     app.wait_frames(3);
-    //     app.assert_state(ServerVisibility::Public);
-    //     app.assert_entity_count::<WebTransportServer>(1);
-    // }
+        app.update();
+        app.assert_state(ServerVisibility::GoingPublic);
+        app.wait_frames(3);
+        app.assert_state(ServerVisibility::Public);
+        app.assert_entity_count::<WebTransportServer>(1);
+    }
 
-    // #[test]
-    // fn test_singleplayer_server_startup_from_hosted_new_game() {
-    //     let mut app = App::new_test_app();
-    //     app.start_singleplayer_host_new_game();
+    #[test]
+    fn test_singleplayer_server_startup_from_hosted_new_game() {
+        let mut app = App::new_test_app();
+        app.start_singleplayer_host_new_game();
 
-    //     app.assert_state(GamePhase::InGame);
-    //     app.assert_state(SessionType::Singleplayer);
-    //     app.assert_state(SingleplayerStatus::Running);
-    //     app.assert_state(ServerVisibility::GoingPublic);
+        app.assert_state(GamePhase::InGame);
+        app.assert_state(SessionType::Singleplayer);
+        app.assert_state(SingleplayerStatus::Running);
+        app.assert_state(ServerVisibility::GoingPublic);
 
-    //     app.assert_entity_count::<LocalServer>(1);
-    //     app.assert_entity_count::<LocalClient>(1);
-    //     app.wait_frames(3);
+        app.assert_entity_count::<LocalServer>(1);
+        app.assert_entity_count::<LocalClient>(1);
+        app.wait_frames(3);
 
-    //     app.assert_state(ServerVisibility::Public);
-    //     app.assert_entity_count::<WebTransportServer>(1);
-    // }
+        app.assert_state(ServerVisibility::Public);
+        app.assert_entity_count::<WebTransportServer>(1);
+    }
 }
