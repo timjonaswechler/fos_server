@@ -1,88 +1,103 @@
 # Testing Strategy & Scenario Identification Guide
 
-This document provides a systematic approach to identifying test scenarios for the `fos_server` project. It helps in moving beyond "Happy Path" testing to cover edge cases, user errors, and architectural robustness.
+This document is a comprehensive guide to systematically identifying test scenarios for the `fos_server` project. It bridges the gap between raw code and effective test cases by providing methods to discover "What could go wrong?".
 
-## 1. The State Transition Matrix (Core Logic)
+## 1. The State Transition Matrix (The Logic Map)
 
-The most effective way to identify logic bugs in a state-machine-driven application (like Bevy) is a Transition Matrix.
+The goal of this matrix is to find out what happens when an event occurs at the "wrong" time.
 
-### How to Create It
-1.  **Rows (Current State):** List all possible states a system can be in (e.g., `Starting`, `Running`, `Stopping`).
-2.  **Columns (Events/Triggers):** List all external events that can occur (e.g., `NetMessage`, `UserClick`, `Timeout`).
-3.  **Cells:** Mark each intersection with:
-    *   ✅ **Happy Path:** Expected behavior.
-    *   ⚠️ **Edge Case:** Possible but tricky (needs handling).
-    *   ❌ **Impossible/Bug:** Should strictly not happen (architectural invariant).
+### Step 1: Find the Rows (The "Where am I?")
+Your rows are the stable phases your game can be in. In Bevy, these are usually your States.
+*   **Look at your Code:** Search for `#[derive(States)]` or your `states.rs` file.
+*   **Example Rows:** `Starting`, `Running`, `Stopping`, `InMenu`.
 
-### Example: Singleplayer Lifecycle
+### Step 2: Find the Columns (The "What happens?")
+This is the hardest part. Use the **3 Sources of Disturbance** to find your columns:
 
-| Current State | Event: `SetupDone` | Event: `Exit (ESC)` | Event: `Disconnect` |
-| :--- | :--- | :--- | :--- |
-| **Starting** | ✅ -> Running | ⚠️ **Abort Mid-Load** | ❌ Irrelevant |
-| **Running** | ❌ (Bug) | ✅ -> Stopping | ✅ -> Stopping |
-| **Stopping** | ❌ (Bug) | ⚠️ Double Stop? | ✅ Ignore |
-| **Menu** | ❌ (Bug) | ❌ Ignore | ❌ Irrelevant |
+1.  **Source 1: The User (Inputs)**
+    *   *Method:* Look at your UI. Every button that changes a screen is a column.
+    *   *Examples:* Pressing `ESC`, Clicking `Exit`, Clicking `Start Game`, `Save`, `Load`.
+2.  **Source 2: The System (Internal Logic)**
+    *   *Method:* Look for `commands.trigger(...)` in your code. These are internal signals.
+    *   *Examples:* `SetupComplete`, `LoadingFinished`, `GameWon`, `GameLost`.
+3.  **Source 3: The Environment (External Factors)**
+    *   *Method:* Think about "Murphy's Law". What can break outside your code?
+    *   *Examples:* Network Disconnect, Window Closed (ALT+F4), Save File Corrupted.
 
-**Checklist Derivation:**
-*   Do I have a test for `Starting` + `Exit (ESC)`? -> *This checks if we crash when aborting loading.*
-*   Do I have a test for `Stopping` + `Exit (ESC)`? -> *This checks if spamming ESC causes double-free errors.*
+### Step 3: Fill the Intersection Cells
+Ask: *"If I am in [Row State], and [Column Event] happens, what does the code do vs. what SHOULD it do?"*
+
+| State (Row) | Event: User presses ESC (Column) | Event: Loading Finished (Column) |
+| :--- | :--- | :--- |
+| **Starting** | ⚠️ **Risk:** Abort loading mid-way. Are entities half-spawned? | ✅ **Happy Path:** Transition to Running. |
+| **Running** | ✅ **Happy Path:** Open Pause Menu. | ❌ **Bug:** Logic error (why load again?). |
+| **Stopping** | ⚠️ **Risk:** Double-free? (User spamming Exit). | ❌ **Bug:** Too late. |
+
+---
 
 ## 2. The Lifecycle Method (CRUD for Games)
 
-Every feature follows a lifecycle. Check "Interruptions" at every stage.
+Every feature in your game (Singleplayer, Multiplayer, Inventory, etc.) is an object that lives and dies. Use the **CRUD** model to find holes in this life.
 
-*   **C - Create (Spawn/Load):**
-    *   *Scenario:* Abort immediately after start.
-    *   *Scenario:* Trigger start twice rapidly (Double-Click).
-    *   *Scenario:* Start fails (e.g., port blocked).
-*   **R - Read (Run/Update):**
-    *   *Scenario:* Simulation runs while window is minimized/unfocused.
-    *   *Scenario:* Simulation pauses correctly when menu opens.
-*   **U - Update (Change State):**
-    *   *Scenario:* Changing level/settings while game is running.
-*   **D - Delete (Despawn/Cleanup):**
-    *   *Scenario:* Restart immediately after stop (Resource leaks?).
-    *   *Scenario:* Quit application while in-game (vs. going to menu first).
+### How to apply it:
+Pick a feature (e.g., "Singleplayer Session") and ask these specific questions:
 
-## 3. The "3 Vs" of Input (User Error)
+*   **C - Create (Start/Load)**
+    *   *Interruption:* Can I stop it while it's creating? (e.g., Cancel button during loading).
+    *   *Repetition:* What if I trigger "Create" twice instantly? (Double-click Start).
+    *   *Prerequisites:* What if I try to Create without requirements? (Start game with no map selected).
+*   **R - Read (Run/Play)**
+    *   *Focus:* Does it keep running if I alt-tab? Should it?
+    *   *Concurrency:* Can two sessions run at once? (Should be impossible).
+*   **U - Update (Change Settings)**
+    *   *Runtime Changes:* Can I change difficulty/resolution while playing? Does it crash?
+*   **D - Delete (Stop/Quit)**
+    *   *Completeness:* Does it clean up EVERYTHING? (Check entity counts).
+    *   *Restart:* Can I immediately Create again after Delete? (The "Resource Leak" check).
 
-When simulating user input, consider these three dimensions:
+---
 
-1.  **Velocity (Speed):**
-    *   *Test:* Pressing buttons faster than the framerate.
-    *   *Test:* Opening/Closing menus in 1 frame.
-    *   *Goal:* Detect Race Conditions (e.g., `unwrap` on an entity that is already despawned).
-2.  **Volume (Quantity):**
-    *   *Test:* No input vs. Massive input.
-    *   *Test:* Empty strings, extremely long strings.
-    *   *Goal:* Buffer overflows, UI layout breaks.
-3.  **Validity (Context):**
-    *   *Test:* Sending "Shoot" command while in "Inventory".
-    *   *Test:* Sending "Join Game" while already in a game.
-    *   *Goal:* Verify state guards (`.run_if(in_state(...))`).
+## 3. The "3 Vs" of Input (Stress Testing)
 
-## 4. Practical Checklist Generation
+When you test user input (Source 1 from the Matrix), use these 3 dimensions to find edge cases.
 
-Combine the above into a concrete checklist for your feature.
+### 1. Velocity (Speed)
+*   *The Question:* "What if the user is faster than the game logic?"
+*   *Scenarios:*
+    *   Clicking "Next" -> "Back" -> "Next" in 100ms.
+    *   Pressing "Exit" immediately after "Start".
+    *   *Why?* Detects Race Conditions (e.g., trying to despawn an entity that hasn't finished spawning).
 
-**Feature: Singleplayer Mode**
+### 2. Volume (Quantity)
+*   *The Question:* "What if the input is too much or too little?"
+*   *Scenarios:*
+    *   Entering a 0-character name.
+    *   Entering a 10,000-character name.
+    *   Spamming the "Fire" button 50 times/sec.
+    *   *Why?* Detects Buffer Overflows, UI Layout breaks, Performance bottlenecks.
 
-**Tier 1: Happy Path (Must Have)**
-- [ ] Start Game -> Play -> Stop Game -> Menu (Verifies basic flow).
-- [ ] Save Game -> Load Game (Verifies persistence).
+### 3. Validity (Context)
+*   *The Question:* "What if the input makes no sense right now?"
+*   *Scenarios:*
+    *   Sending a "Move Character" command while in the "Main Menu".
+    *   Trying to "Join Game" when already connected.
+    *   *Why?* Verifies your State Guards (e.g., `.run_if(in_state(InGame))`).
 
-**Tier 2: Edge Cases (Robustness)**
-- [ ] **Mid-Start Abort:** Press Exit while `Starting`. (Matrix: `Starting` + `Exit`).
-- [ ] **Rapid Restart:** Start -> Stop -> Start immediately. (Lifecycle: `Delete` -> `Create`).
-- [ ] **Menu Toggle Spam:** Open/Close menu 10 times in 1 second. (3Vs: Velocity).
+---
 
-**Tier 3: Developer/Architectural Constraints**
-- [ ] Verify that systems for `InGame` do NOT run when in `Menu`.
-- [ ] Verify that `LocalServer` entity is strictly unique (no duplicates).
+## 4. How to Build Your Checklist (Summary)
 
-## Summary
+To create a checklist for a new feature:
 
-1.  **Draw the Matrix** for your states.
-2.  **Interrupt the Lifecycle** (Stop during Start).
-3.  **Stress the Inputs** (Fast, Many, Wrong Context).
-4.  **Write Tests** for the red flags (⚠️) identified.
+1.  **List the States.** (Rows)
+2.  **List the Inputs.** (Columns - Buttons, Events).
+3.  **Check intersections** for "Happy Path" (✅) vs "Danger Zone" (⚠️).
+4.  **Apply Lifecycle Questions** (Can I interrupt Create? Can I restart after Delete?).
+5.  **Apply 3 Vs** (Fast clicks? Bad data?).
+
+### Example Checklist for `Singleplayer`:
+
+*   [ ] **Matrix:** `Starting` + `Loading Finished` -> Game Runs (Happy Path).
+*   [ ] **Matrix/Velocity:** `Starting` + `Exit Button` -> Clean Abort (Edge Case).
+*   [ ] **Lifecycle (D):** `Stopping` -> `Starting` immediately -> No errors (Restart Robustness).
+*   [ ] **Validity:** Trigger `NavigateGameMenu` event while in `MainMenu` -> Should be ignored.
