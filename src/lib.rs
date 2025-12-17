@@ -13,7 +13,7 @@ use {
     serde::{Deserialize, Serialize},
     server::ServerLogicPlugin,
     singleplayer::SingleplayerLogicPlugin,
-    states::*,
+    states::StatesPlugin,
 };
 
 pub struct FOSServerPlugin;

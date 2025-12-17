@@ -128,7 +128,7 @@ pub fn singleplayer_stopping(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{states::*, ChangeGameMode, FOSServerPlugin};
+    use crate::{states::*, FOSServerPlugin};
     use std::fmt::Debug;
 
     /// Extension trait to make tests cleaner and more readable.
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn test_singleplayer_startup_new_game() {
+    fn test_from_singleplayer_startup_new_game() {
         let mut app = App::new_test_app();
         app.start_singleplayer_new_game();
 
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn test_singleplayer_startup_loaded_game() {
+    fn test_from_singleplayer_startup_loaded_game() {
         let mut app = App::new_test_app();
         app.start_singleplayer_loaded_game();
 

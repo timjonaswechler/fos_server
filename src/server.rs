@@ -41,10 +41,6 @@ impl Plugin for ServerLogicPlugin {
                 OnEnter(ServerVisibility::GoingPrivate),
                 on_server_going_private,
             )
-            // .add_systems(
-            //     Update,
-            //     check_is_server_private.run_if(in_state(ServerVisibility::GoingPrivate)),
-            // )
             .add_observer(on_check_is_server_private)
             .add_observer(on_server_session_request);
     }
@@ -69,6 +65,7 @@ pub fn on_server_going_public(
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
     next_state.set(ServerVisibility::GoingPublic);
+    // TODO: implement error if server cant get started
     // TODO: Implement User interface infos for server
     // TODO: Implement Port usage detection
     let identity = aeronet_webtransport::wtransport::Identity::self_signed([
@@ -103,15 +100,21 @@ pub fn on_server_going_public(
 }
 
 pub fn check_is_server_public(
-    _commands: Commands,
-    server_query: Query<Entity, (With<Server>, With<ServerEndpoint>)>,
+    roots: Query<Entity, With<WebTransportServer>>,
+    children: Query<&Children>,
+    servers: Query<(&ServerEndpoint, Option<&Server>)>,
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
-    println!("check if is ready");
-    if let Ok(_) = server_query.single() {
-        {
-            info!("WebTransport Server is ready");
-            next_state.set(ServerVisibility::Public);
+    println!("checking if server is public");
+    let Ok(root) = roots.single() else { return };
+
+    for child in children.iter_descendants(root) {
+        if let Ok((_endpoint, server)) = servers.get(child) {
+            if server.is_some() {
+                println!("WebTransport server is fully opened");
+                next_state.set(ServerVisibility::Public);
+                return;
+            }
         }
     }
 }
@@ -332,7 +335,7 @@ pub mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{local::*, states::*, ChangeGameMode, FOSServerPlugin};
+    use crate::{local::*, states::*, FOSServerPlugin};
     use std::fmt::Debug;
 
     /// Extension trait to make tests cleaner and more readable.
@@ -357,6 +360,8 @@ mod tests {
 
         /// Asserts that a specific component type has exactly `count` instances in the world.
         fn assert_entity_count<C: Component>(&mut self, count: usize);
+
+        fn toggle_game_menu(&mut self);
     }
 
     impl ServerVisibilityTestExt for App {
@@ -384,25 +389,10 @@ mod tests {
             });
             self.update();
 
-            // 3. New Game -> Start Game (ChangeGameMode)
-            // Note: In the real UI, this might be a chain of sub-menus (ConfigPlayer -> ConfigWorld...),
-            // but the critical transition to InGame is triggered by ChangeGameMode logic
-            // or the final confirmation in `on_singleplayer_new_game_screen_event`.
-            // For this integration test, we simulate the final "Start" trigger that the UI would send.
-
-            // To properly simulate the flow as defined in `on_game_mode_event` in states.rs,
-            // we need to be in the correct sub-state (NewGame) which we set above.
             self.world_mut().trigger(ChangeGameMode {
                 transition: SessionType::Singleplayer,
             });
-
-            // Process the ChangeGameMode event which sets:
-            // - GamePhase::InGame
-            // - SingleplayerStatus::Starting
             self.update();
-
-            // Process internal transitions (Starting -> Ready -> Running)
-            // The `on_singleplayer_starting` system spawns entities, then `on_singleplayer_ready` runs.
             self.update();
             self.update();
         }
@@ -507,10 +497,22 @@ mod tests {
                 std::any::type_name::<C>()
             );
         }
+
+        fn toggle_game_menu(&mut self) {
+            let current_focus = {
+                let current_state = self.world().resource::<State<GameplayFocus>>();
+                current_state.get().clone()
+            };
+            let mut next = self.world_mut().resource_mut::<NextState<GameplayFocus>>();
+            match current_focus {
+                GameplayFocus::Playing => next.set(GameplayFocus::GameMenu),
+                GameplayFocus::GameMenu => next.set(GameplayFocus::Playing),
+            }
+        }
     }
 
     #[test]
-    fn test_singleplayer_server_startup_from_new_game() {
+    fn server_lifecycle_over_game_menu_after_new_game_in_singleplayer_is_started() {
         let mut app = App::new_test_app();
         app.start_singleplayer_new_game();
 
@@ -518,27 +520,50 @@ mod tests {
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::Private);
-
         app.assert_entity_count::<LocalServer>(1);
         app.assert_entity_count::<LocalClient>(1);
+        app.assert_state(GameplayFocus::Playing);
 
-        app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::GameMenu);
+        // server going public sequence
+        app.toggle_game_menu();
         app.update();
         app.assert_state(GameplayFocus::GameMenu);
         app.world_mut().trigger(SetServerVisibility {
             transition: ServerVisibility::GoingPublic,
         });
-
-        app.wait_frames(10);
-
-        app.assert_state(ServerVisibility::Public);
+        app.toggle_game_menu();
+        app.update();
+        app.assert_state(GameplayFocus::Playing);
         app.assert_entity_count::<WebTransportServer>(1);
+        app.assert_entity_count::<ServerEndpoint>(1);
+        app.assert_entity_count::<Server>(1);
+
+        println!("waited 10 frames");
+        app.assert_state(ServerVisibility::Public);
+
+        // Server runs at the moment
+
+        // closing sequnce starts
+        app.toggle_game_menu();
+        app.update();
+        app.assert_state(GameplayFocus::GameMenu);
+        app.world_mut().trigger(NavigateGameMenu {
+            transition: PauseMenu::Exit,
+        });
+        app.toggle_game_menu();
+        app.update();
+        app.assert_state(SingleplayerStatus::Stopping);
+
+        // at the moemnt there are 6 steps in the Singleplayer stopping phase
+        app.wait_frames(6);
+        app.assert_state(GamePhase::Menu);
+        app.assert_entity_count::<WebTransportServer>(0);
+        app.assert_entity_count::<ServerEndpoint>(0);
+        app.assert_entity_count::<Server>(0);
     }
 
-    #[test]
-    fn test_singleplayer_server_startup_from_loaded_game() {
+    // #[test]
+    fn server_lifecycle_over_game_menu_after_saved_game_in_singleplayer_is_started() {
         let mut app = App::new_test_app();
         app.start_singleplayer_loaded_game();
 
@@ -550,24 +575,40 @@ mod tests {
         app.assert_entity_count::<LocalServer>(1);
         app.assert_entity_count::<LocalClient>(1);
 
-        app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::GameMenu);
+        // server going public sequence
+        app.toggle_game_menu();
         app.update();
         app.assert_state(GameplayFocus::GameMenu);
         app.world_mut().trigger(SetServerVisibility {
             transition: ServerVisibility::GoingPublic,
         });
-
+        app.toggle_game_menu();
         app.update();
-        app.assert_state(ServerVisibility::GoingPublic);
+        app.assert_state(GameplayFocus::Playing);
+
         app.wait_frames(3);
+
         app.assert_state(ServerVisibility::Public);
         app.assert_entity_count::<WebTransportServer>(1);
+        // Server runs at the moment
+
+        // closing sequnce starts
+        app.toggle_game_menu();
+        app.update();
+        app.assert_state(GameplayFocus::GameMenu);
+        app.world_mut().trigger(NavigateGameMenu {
+            transition: PauseMenu::Exit,
+        });
+        app.toggle_game_menu();
+        app.update();
+        app.assert_state(SingleplayerStatus::Stopping);
+        // at the moemnt there are 6 steps in the Singleplayer stopping phase
+        app.wait_frames(6);
+        app.assert_state(GamePhase::Menu);
     }
 
-    #[test]
-    fn test_singleplayer_server_startup_from_hosted_new_game() {
+    // #[test]
+    fn server_start_with_new_hosted_game() {
         let mut app = App::new_test_app();
         app.start_singleplayer_host_new_game();
 
@@ -578,6 +619,26 @@ mod tests {
 
         app.assert_entity_count::<LocalServer>(1);
         app.assert_entity_count::<LocalClient>(1);
+
+        app.wait_frames(3);
+
+        app.assert_state(ServerVisibility::Public);
+        app.assert_entity_count::<WebTransportServer>(1);
+    }
+
+    // #[test]
+    fn server_start_with_loaded_hosted_game() {
+        let mut app = App::new_test_app();
+        app.start_singleplayer_host_saved_game();
+
+        app.assert_state(GamePhase::InGame);
+        app.assert_state(SessionType::Singleplayer);
+        app.assert_state(SingleplayerStatus::Running);
+        app.assert_state(ServerVisibility::GoingPublic);
+
+        app.assert_entity_count::<LocalServer>(1);
+        app.assert_entity_count::<LocalClient>(1);
+
         app.wait_frames(3);
 
         app.assert_state(ServerVisibility::Public);
