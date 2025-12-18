@@ -2,8 +2,8 @@ use {
     crate::{
         local::*,
         states::{
-            ChangeAppScope, GamePhase, SetSingleplayerStatus, SingleplayerShutdownStep,
-            SingleplayerStatus,
+            ChangeAppScope, GamePhase, SessionType, SetSingleplayerStatus,
+            SingleplayerShutdownStep, SingleplayerStatus,
         },
     },
     aeronet::io::{connection::Disconnect, server::Close},
@@ -54,11 +54,17 @@ pub fn on_singleplayer_starting(mut commands: Commands) {
     commands.queue(ChannelIo::open(server_entity, client_entity));
 }
 
-pub fn on_singleplayer_ready(_: On<Add, LocalClient>, mut commands: Commands) {
-    commands.trigger(SetSingleplayerStatus {
-        transition: SingleplayerStatus::Running,
-    });
-    info!("Singleplayer is ready");
+pub fn on_singleplayer_ready(
+    _: On<Add, LocalClient>,
+    mut commands: Commands,
+    current_state: Res<State<SessionType>>,
+) {
+    if *current_state.get() == SessionType::Singleplayer {
+        commands.trigger(SetSingleplayerStatus {
+            transition: SingleplayerStatus::Running,
+        });
+        info!("Singleplayer is ready");
+    }
 }
 
 pub fn on_singleplayer_running(mut _commands: Commands) {
