@@ -1,6 +1,9 @@
 // rule: no trigger commands only state changes
 
-use bevy::prelude::*;
+use {
+    crate::{client::ClientTarget, notifications::NotifyError},
+    bevy::prelude::*,
+};
 
 pub struct StatesPlugin;
 
@@ -230,7 +233,8 @@ fn on_settings_menu_screen_event(
 
 fn on_game_mode_event(
     event: On<ChangeGameMode>,
-    mut _commands: Commands,
+    mut commands: Commands,
+    client_target: Option<Res<ClientTarget>>,
     app_state: Res<State<GamePhase>>,
     singleplayer_menu_screen_opt: Option<Res<State<SingleplayerSetup>>>,
     multiplayer_menu_screen_opt: Option<Res<State<MultiplayerSetup>>>,
@@ -283,17 +287,23 @@ fn on_game_mode_event(
                     return;
                 }
             };
-            // TODO: Implement client target check
-            //
-            // let mut is_client_target_valid: bool = false;
-            // if let Some(client_target) = client_target {
-            //     is_client_target_valid = !client_target.0.is_empty();
-            // }
+
+            let Some(client_target) = client_target else {
+                commands.trigger(NotifyError::new("⚠️ Bitte Server-Adresse eingeben!"));
+                return;
+            };
+
+            if !client_target.is_valid {
+                return; // Fehler schon beim Setzen gezeigt
+            }
+            info!(
+                "✅ Server validiert: {}:{}",
+                client_target.ip, client_target.port
+            );
 
             if *app_state.get() == GamePhase::Menu
-                && (*multiplayer_menu_screen.get() == MultiplayerSetup::JoinGame)
+                && *multiplayer_menu_screen.get() == MultiplayerSetup::JoinGame
             {
-                info!("Transitioning to client");
                 next_app_state.set(GamePhase::InGame);
                 next_game_mode.set(SessionType::Client);
                 next_client_state.set(ClientStatus::Connecting);

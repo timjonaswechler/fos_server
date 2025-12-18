@@ -1,9 +1,9 @@
 use {
     crate::{
         local::LocalClient,
+        notifications::NotifyError,
         server::helpers::{DISCOVERY_PORT, MAGIC},
         states::{ClientStatus, MenuContext, SetClientStatus},
-        NotifyError,
     },
     aeronet::io::{connection::Disconnect, Session},
     aeronet_webtransport::client::{WebTransportClient, WebTransportClientPlugin},
@@ -42,15 +42,34 @@ impl Plugin for ClientLogicPlugin {
 }
 
 #[derive(Resource, Default)]
-pub struct ClientTarget(pub String);
+pub struct ClientTarget {
+    pub input: String, // "127.0.0.1:8080"
+    pub ip: String,
+    pub port: u16,
+    pub is_valid: bool,
+}
 
 pub struct SetClientTarget {
-    pub target: String,
+    pub input: String,
 }
 
 impl Command for SetClientTarget {
     fn apply(self, world: &mut World) {
-        world.insert_resource(ClientTarget(self.target));
+        let mut target = ClientTarget::default();
+
+        match helpers::validate_server_address(&self.input, &mut world.commands()) {
+            Ok(addr) => {
+                target.input = self.input;
+                target.ip = addr.ip().to_string();
+                target.port = addr.port();
+                target.is_valid = true;
+            }
+            Err(()) => {
+                target.input = self.input;
+                target.is_valid = false;
+            }
+        }
+        world.insert_resource(target);
     }
 }
 
@@ -125,7 +144,6 @@ pub fn on_client_connecting(
     mut cert_hash: Local<String>,
     mut session_id: Local<usize>,
 ) {
-    let target = client_target.0.clone();
     let _cert_hash_resp = &mut *cert_hash;
     let cert_hash = cert_hash.clone();
     let config = match client_config(cert_hash) {
@@ -139,11 +157,14 @@ pub fn on_client_connecting(
     };
 
     *session_id += 1;
-    let name = format!("{}. {target}", *session_id);
-    info!("Connecting to server at {:?}", target);
+    let name = format!("{:#?}. {:?}", *session_id, client_target.input);
+    info!("Connecting to server at {:?}", client_target.input);
     commands
         .spawn((Name::new(name), LocalClient))
-        .queue(WebTransportClient::connect(config, target));
+        .queue(WebTransportClient::connect(
+            config,
+            client_target.input.clone(),
+        ));
 }
 
 pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
@@ -186,11 +207,13 @@ pub fn on_client_disconnecting(
     }
 }
 
-mod helpers {
+pub mod helpers {
     use {
+        crate::notifications::NotifyError,
         aeronet_webtransport::{cert, client::ClientConfig, wtransport::tls::Sha256Digest},
         bevy::prelude::*,
         core::time::Duration,
+        std::net::SocketAddr,
     };
 
     // TODO: Remove anyhow here
@@ -217,5 +240,52 @@ mod helpers {
             .max_idle_timeout(Some(Duration::from_secs(5)))
             .expect("should be a valid idle timeout")
             .build())
+    }
+
+    pub(super) fn validate_server_address(
+        target: &str,
+        commands: &mut Commands,
+    ) -> Result<SocketAddr, ()> {
+        let target = target.trim();
+        if target.is_empty() {
+            commands.trigger(NotifyError::new("Server address is empty".to_string()));
+            return Err(());
+        }
+
+        let addr: SocketAddr = match target.parse() {
+            Ok(addr) => addr,
+            Err(_) => {
+                commands.trigger(NotifyError::new(format!(
+                    "Invalid server address format: '{}'. Expected 'IP:PORT'",
+                    target
+                )));
+                return Err(());
+            }
+        };
+
+        if addr.port() == 0 {
+            commands.trigger(NotifyError::new("Server port cannot be 0".to_string()));
+            return Err(());
+        }
+
+        Ok(addr)
+    }
+
+    pub fn parse_target_live(input: &str) -> Option<(String, u16)> {
+        let input = input.trim();
+        if input.is_empty() {
+            return None;
+        }
+
+        let addr: SocketAddr = match input.parse() {
+            Ok(addr) => addr,
+            Err(_) => return None,
+        };
+
+        if addr.port() == 0 {
+            return None;
+        }
+
+        Some((addr.ip().to_string(), addr.port()))
     }
 }

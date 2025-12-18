@@ -1,3 +1,4 @@
+use crate::client::helpers::parse_target_live;
 use bevy::app::AppExit;
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
@@ -405,20 +406,19 @@ fn render_multiplayer_join_game(
 ) {
     ui.heading("Local Servers");
 
+    // Local Servers Liste (SetClientTarget anpassen!)
     match discovered_servers {
         Some(res) => {
             let servers = &res.0;
             if servers.is_empty() {
                 ui.label("No local servers discovered...");
-                if ui.button("🔍 Refresh").clicked() {
-                    // todo Optional: Discovery manuell triggern
-                }
             } else {
                 ui.separator();
                 for server in servers {
                     if ui.selectable_label(false, format!("{}", server)).clicked() {
+                        // ✅ input statt target
                         actions.commands.queue(SetClientTarget {
-                            target: server.clone(),
+                            input: server.clone(),
                         });
                     }
                 }
@@ -427,24 +427,38 @@ fn render_multiplayer_join_game(
         }
         None => {
             ui.label("No local servers discovered...");
-            if ui.button("🔍 Refresh").clicked() {
-                // todo: Optional: Discovery manuell triggern
-            }
         }
     }
 
     ui.separator();
+
     let mut is_client_target_valid = false;
     if let Some(target) = client_target {
         ui.horizontal(|ui| {
-            ui.add(egui::TextEdit::singleline(&mut target.0).hint_text("Enter server address"));
+            let response =
+                ui.add(egui::TextEdit::singleline(&mut target.input).hint_text("127.0.0.1:8080"));
+
+            if response.changed() {
+                let live_valid = parse_target_live(&target.input).is_some();
+                target.is_valid = live_valid;
+            }
+
+            // Status anzeigen
+            ui.label(match target.is_valid {
+                true => "Valid",
+                false => {
+                    if target.input.trim().is_empty() {
+                        ""
+                    } else {
+                        "Invalid"
+                    }
+                }
+            });
         });
-        let trimmed = target.0.trim().to_owned();
-        target.0 = trimmed;
-        is_client_target_valid = !target.0.is_empty();
-    } else {
-        ui.label("No client target available");
+
+        is_client_target_valid = target.is_valid;
     }
+
     ui.separator();
 
     let join_button = ui.add_enabled(
@@ -457,6 +471,7 @@ fn render_multiplayer_join_game(
             transition: SessionType::Client,
         });
     }
+
     ui.separator();
 
     if ui.button("Back").clicked() {
