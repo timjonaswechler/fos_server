@@ -283,10 +283,15 @@ fn on_game_mode_event(
                     return;
                 }
             };
+            // TODO: Implement client target check
+            //
+            // let mut is_client_target_valid: bool = false;
+            // if let Some(client_target) = client_target {
+            //     is_client_target_valid = !client_target.0.is_empty();
+            // }
 
             if *app_state.get() == GamePhase::Menu
-                && (*multiplayer_menu_screen.get() == MultiplayerSetup::JoinPublicGame
-                    || *multiplayer_menu_screen.get() == MultiplayerSetup::JoinLocalGame)
+                && (*multiplayer_menu_screen.get() == MultiplayerSetup::JoinGame)
             {
                 info!("Transitioning to client");
                 next_app_state.set(GamePhase::InGame);
@@ -527,8 +532,7 @@ pub enum MultiplayerSetup {
     Overview,
     HostNewGame,
     HostSavedGame,
-    JoinPublicGame,
-    JoinLocalGame,
+    JoinGame,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, SubStates, Reflect)]

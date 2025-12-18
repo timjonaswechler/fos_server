@@ -8,28 +8,36 @@ use {
     },
     aeronet::io::{connection::Disconnect, server::Close},
     aeronet_channel::{ChannelIo, ChannelIoPlugin},
+    // aeronet_replicon::client::AeronetRepliconClientPlugin,
+    // aeronet_replicon::server::AeronetRepliconServerPlugin,
     aeronet_webtransport::server::{WebTransportServer, WebTransportServerClient},
     bevy::prelude::*,
+    // bevy_replicon::RepliconPlugins,
 };
 
 pub struct SingleplayerLogicPlugin;
 
 impl Plugin for SingleplayerLogicPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(ChannelIoPlugin)
-            .add_systems(
-                OnEnter(SingleplayerStatus::Starting),
-                on_singleplayer_starting,
-            )
-            .add_observer(on_singleplayer_ready)
-            .add_systems(
-                OnEnter(SingleplayerStatus::Running),
-                on_singleplayer_running,
-            )
-            .add_systems(
-                Update,
-                singleplayer_stopping.run_if(in_state(SingleplayerStatus::Stopping)),
-            );
+        app.add_plugins((
+            ChannelIoPlugin,
+            // RepliconPlugins,
+            // AeronetRepliconClientPlugin,
+            // AeronetRepliconServerPlugin,
+        ))
+        .add_systems(
+            OnEnter(SingleplayerStatus::Starting),
+            on_singleplayer_starting,
+        )
+        .add_observer(on_singleplayer_ready)
+        .add_systems(
+            OnEnter(SingleplayerStatus::Running),
+            on_singleplayer_running,
+        )
+        .add_systems(
+            Update,
+            singleplayer_stopping.run_if(in_state(SingleplayerStatus::Stopping)),
+        );
     }
 }
 

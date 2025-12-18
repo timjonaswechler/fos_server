@@ -17,7 +17,7 @@ aeronet_io = { version = "0.18.0"}
 aeronet_channel = { version = "0.18.0" }
 # aeronet_replicon = { version = "0.18.0", features = ["client", "server"] }
 aeronet_webtransport = { version = "0.18.0", features = ["client","server", "dangerous-configuration"] }
-bevy_replicon = { version = "0.37.0" }
+# bevy_replicon = { version = "0.37.0" }
 
 # debug
 bevy_egui = { version = "0.38.0" }
