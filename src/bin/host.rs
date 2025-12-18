@@ -2,8 +2,11 @@ use bevy::app::AppExit;
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use fos_server::client::SetClientTarget;
-use fos_server::{client::DiscoveredServers, states::*, *};
+use fos_server::{
+    client::{ClientTarget, DiscoveredServers, SetClientTarget},
+    states::*,
+    *,
+};
 
 fn main() -> AppExit {
     App::new()
@@ -52,6 +55,7 @@ struct MenuUiParams<'w, 's> {
     singleplayer_menu_state: Option<Res<'w, State<SingleplayerSetup>>>,
     multiplayer_menu_state: Option<Res<'w, State<MultiplayerSetup>>>,
     discovered_servers: Option<Res<'w, DiscoveredServers>>,
+    client_target: Option<ResMut<'w, ClientTarget>>,
     exit: MessageWriter<'w, AppExit>,
 }
 
@@ -187,6 +191,7 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
     let single = params.singleplayer_menu_state.as_deref();
     let multi = params.multiplayer_menu_state.as_deref();
     let discovered = params.discovered_servers.as_deref();
+    let client_target = params.client_target.as_deref_mut();
 
     // 3. mutables „Action“-Bundle bauen für Commands + Exit
     let mut actions = MenuActions {
@@ -204,7 +209,7 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
                 MenuContext::Main => render_menu_main(ui, &mut actions),
                 MenuContext::Singleplayer => render_singleplayer_menu(ui, &mut actions, single),
                 MenuContext::Multiplayer => {
-                    render_multiplayer_menu(ui, &mut actions, multi, discovered)
+                    render_multiplayer_menu(ui, &mut actions, multi, discovered, client_target)
                 }
                 MenuContext::Wiki => render_menu_wiki(ui, &mut actions),
                 MenuContext::Settings => render_menu_settings(ui, &mut actions),
@@ -312,6 +317,7 @@ fn render_multiplayer_menu(
     actions: &mut MenuActions,
     state: Option<&State<MultiplayerSetup>>,
     discovered_servers: Option<&DiscoveredServers>,
+    client_target: Option<&mut ClientTarget>,
 ) {
     ui.vertical_centered_justified(|ui| {
         let Some(multi) = state else {
@@ -328,11 +334,8 @@ fn render_multiplayer_menu(
             MultiplayerSetup::HostSavedGame => {
                 render_multiplayer_host_saved(ui, actions);
             }
-            MultiplayerSetup::JoinPublicGame => {
-                render_multiplayer_join_public(ui, actions);
-            }
-            MultiplayerSetup::JoinLocalGame => {
-                render_multiplayer_join_local(ui, actions, discovered_servers);
+            MultiplayerSetup::JoinGame => {
+                render_multiplayer_join_game(ui, actions, discovered_servers, client_target);
             }
         }
     });
@@ -351,15 +354,9 @@ fn render_multiplayer_overview(ui: &mut egui::Ui, actions: &mut MenuActions) {
         });
     }
 
-    if ui.button("Join public Game").clicked() {
+    if ui.button("Join Game").clicked() {
         actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::JoinPublicGame,
-        });
-    }
-
-    if ui.button("Join local Game").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::JoinLocalGame,
+            transition: MultiplayerSetup::JoinGame,
         });
     }
 
@@ -394,24 +391,11 @@ fn render_multiplayer_host_saved(ui: &mut egui::Ui, actions: &mut MenuActions) {
     }
 }
 
-fn render_multiplayer_join_public(ui: &mut egui::Ui, actions: &mut MenuActions) {
-    if ui.button("Join Public Game").clicked() {
-        actions.commands.trigger(ChangeGameMode {
-            transition: SessionType::Client,
-        });
-    }
-
-    if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::Overview,
-        });
-    }
-}
-
-fn render_multiplayer_join_local(
+fn render_multiplayer_join_game(
     ui: &mut egui::Ui,
     actions: &mut MenuActions,
     discovered_servers: Option<&DiscoveredServers>,
+    client_target: Option<&mut ClientTarget>,
 ) {
     ui.heading("Local Servers");
 
@@ -427,7 +411,9 @@ fn render_multiplayer_join_local(
                 ui.separator();
                 for server in servers {
                     if ui.selectable_label(false, format!("{}", server)).clicked() {
-                        actions.commands.queue(SetClientTarget(server.clone()));
+                        actions.commands.queue(SetClientTarget {
+                            target: server.clone(),
+                        });
                     }
                 }
                 ui.separator();
@@ -441,13 +427,31 @@ fn render_multiplayer_join_local(
         }
     }
 
-    // todo: if nothing is selected button is disabled
-    ui.add_enabled(false, egui::Button::new("Can't click this"));
-    if ui.button("Join Selected Game").clicked() {
+    ui.separator();
+    let mut is_client_target_valid = false;
+    if let Some(target) = client_target {
+        ui.horizontal(|ui| {
+            ui.add(egui::TextEdit::singleline(&mut target.0).hint_text("Enter server address"));
+        });
+        let trimmed = target.0.trim().to_owned();
+        target.0 = trimmed;
+        is_client_target_valid = !target.0.is_empty();
+    } else {
+        ui.label("No client target available");
+    }
+    ui.separator();
+
+    let join_button = ui.add_enabled(
+        is_client_target_valid,
+        egui::Button::new("Join Selected Game"),
+    );
+
+    if join_button.clicked() {
         actions.commands.trigger(ChangeGameMode {
             transition: SessionType::Client,
         });
     }
+    ui.separator();
 
     if ui.button("Back").clicked() {
         actions.commands.trigger(NavigateMultiplayerMenu {

@@ -44,11 +44,13 @@ impl Plugin for ClientLogicPlugin {
 #[derive(Resource, Default)]
 pub struct ClientTarget(pub String);
 
-pub struct SetClientTarget(pub String);
+pub struct SetClientTarget {
+    pub target: String,
+}
 
 impl Command for SetClientTarget {
     fn apply(self, world: &mut World) {
-        world.insert_resource(ClientTarget(self.0));
+        world.insert_resource(ClientTarget(self.target));
     }
 }
 
