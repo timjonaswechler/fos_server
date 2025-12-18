@@ -303,7 +303,9 @@ fn render_singleplayer_new_game(ui: &mut egui::Ui, actions: &mut MenuActions) {
 
 fn render_singleplayer_load_game(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Load").clicked() {
-        // ...
+        actions.commands.trigger(ChangeGameMode {
+            transition: SessionType::Singleplayer,
+        });
     }
     if ui.button("Back").clicked() {
         actions.commands.trigger(NavigateSingleplayerMenu {
@@ -369,7 +371,9 @@ fn render_multiplayer_overview(ui: &mut egui::Ui, actions: &mut MenuActions) {
 
 fn render_multiplayer_host_new(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("New Game").clicked() {
-        // TODO: Host-Logik
+        actions.commands.trigger(ChangeGameMode {
+            transition: SessionType::Singleplayer,
+        });
     }
 
     if ui.button("Back").clicked() {
@@ -381,7 +385,9 @@ fn render_multiplayer_host_new(ui: &mut egui::Ui, actions: &mut MenuActions) {
 
 fn render_multiplayer_host_saved(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Load Game").clicked() {
-        // TODO: Host saved logic
+        actions.commands.trigger(ChangeGameMode {
+            transition: SessionType::Singleplayer,
+        });
     }
 
     if ui.button("Back").clicked() {
