@@ -8,7 +8,7 @@ pub mod local;
 
 use {
     bevy::prelude::*,
-    bevy_replicon::prelude::*,
+    // bevy_replicon::prelude::*,
     client::ClientLogicPlugin,
     serde::{Deserialize, Serialize},
     server::ServerLogicPlugin,
@@ -25,12 +25,10 @@ impl Plugin for FOSServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
             StatesPlugin,
-            RepliconPlugins,
             SingleplayerLogicPlugin,
             ServerLogicPlugin,
             ClientLogicPlugin,
         ))
-        .add_client_message::<DummyEvent>(Channel::Ordered)
         .init_resource::<ErrorMessage>()
         .add_observer(on_notify_error)
         .add_systems(Update, error_lifecycle);
