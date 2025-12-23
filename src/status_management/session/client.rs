@@ -10,8 +10,9 @@ impl Plugin for ClientStatusPlugin {
 }
 
 #[derive(Event, Debug, Clone, Copy)]
-pub struct SetClientStatus {
-    pub transition: ClientStatus,
+pub enum SetClientStatus {
+    Transition(ClientStatus),
+    Failed,
 }
 
 fn on_client_state_event(
@@ -20,22 +21,25 @@ fn on_client_state_event(
     mut next_session_type: ResMut<NextState<SessionType>>,
     mut next_state: ResMut<NextState<ClientStatus>>,
 ) {
-    match event.transition {
-        ClientStatus::Connecting => {
+    match *event {
+        SetClientStatus::Transition(ClientStatus::Connecting) => {
             next_state.set(ClientStatus::Connecting);
             next_session_type.set(SessionType::Client);
         }
-        ClientStatus::Connected => {
+        SetClientStatus::Transition(ClientStatus::Connected) => {
             next_state.set(ClientStatus::Connected);
             next_app_scope.set(AppScope::InGame);
         }
-        ClientStatus::Disconnecting => {
+        SetClientStatus::Transition(ClientStatus::Disconnecting) => {
             next_state.set(ClientStatus::Disconnecting);
             next_session_type.set(SessionType::None);
             next_app_scope.set(AppScope::Menu);
         }
-        state => {
+        SetClientStatus::Transition(state) => {
             next_state.set(state);
+        }
+        SetClientStatus::Failed => {
+            next_session_type.set(SessionType::None);
         }
     }
 }

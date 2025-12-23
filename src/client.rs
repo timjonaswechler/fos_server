@@ -31,13 +31,13 @@ impl Plugin for ClientLogicPlugin {
                 TimerMode::Repeating,
             )))
             .add_systems(OnEnter(ClientStatus::Connecting), on_client_connecting)
-            // .add_observer(on_client_connected)
+            .add_observer(on_client_connected)
             .add_systems(
                 Update,
                 client_syncing.run_if(in_state(ClientStatus::Syncing)),
             )
             .add_observer(on_client_connection_failed)
-            .add_observer(on_client_disconnecting)
+            .add_systems(Update, on_client_disconnecting)
             .add_systems(
                 Update,
                 (client_discover_server, client_discover_server_collect)
@@ -54,6 +54,21 @@ pub struct ClientTarget {
     pub is_valid: bool,
 }
 
+impl ClientTarget {
+    pub fn update_input(&mut self, input: String) {
+        self.input = input;
+        if let Some((ip, port)) = helpers::parse_target_live(&self.input) {
+            self.ip = ip;
+            self.port = port;
+            self.is_valid = true;
+        } else {
+            self.ip.clear();
+            self.port = 0;
+            self.is_valid = false;
+        }
+    }
+}
+
 pub struct SetClientTarget {
     pub input: String,
 }
@@ -61,19 +76,7 @@ pub struct SetClientTarget {
 impl Command for SetClientTarget {
     fn apply(self, world: &mut World) {
         let mut target = ClientTarget::default();
-
-        match helpers::validate_server_address(&self.input, &mut world.commands()) {
-            Ok(addr) => {
-                target.input = self.input;
-                target.ip = addr.ip().to_string();
-                target.port = addr.port();
-                target.is_valid = true;
-            }
-            Err(()) => {
-                target.input = self.input;
-                target.is_valid = false;
-            }
-        }
+        target.update_input(self.input);
         world.insert_resource(target);
     }
 }
@@ -168,26 +171,38 @@ pub fn on_client_connecting(
         .spawn((Name::new(name), LocalClient))
         .queue(WebTransportClient::connect(
             config,
-            client_target.input.clone(),
+            format!("https://{}", client_target.input),
         ));
 }
 
 fn on_client_connection_failed(
     event: On<Disconnected>,
-    current_state: Res<State<ClientStatus>>,
+    current_state: Option<Res<State<ClientStatus>>>,
     mut commands: Commands,
     mut client_target: ResMut<ClientTarget>,
 ) {
-    if *current_state.get() == ClientStatus::Connecting {
-        match &event.reason {
-            DisconnectReason::ByError(err) => {
-                commands.trigger(NotifyError::new(format!(
-                    "Failed to connect to server: {err:?}"
-                )));
-                error!("Failed to connect to server: {err:?}");
-                client_target.is_valid = false;
+    if let Some(current_state) = current_state {
+        if *current_state.get() == ClientStatus::Connecting {
+            match &event.reason {
+                DisconnectReason::ByError(err) => {
+                    commands.trigger(NotifyError::new(format!(
+                        "Failed to connect to server: {err:?}"
+                    )));
+                    error!("Failed to connect to server: {err:?}");
+                    client_target.is_valid = false;
+                    commands.trigger(SetClientStatus::Failed);
+                }
+                DisconnectReason::ByPeer(err) => {
+                    error!("Failed to connect to server: {err:?}");
+                    client_target.is_valid = false;
+                    commands.trigger(SetClientStatus::Failed);
+                }
+                DisconnectReason::ByUser(err) => {
+                    error!("Failed to connect to server: {err:?}");
+                    client_target.is_valid = false;
+                    commands.trigger(SetClientStatus::Failed);
+                }
             }
-            _ => {}
         }
     }
 }
@@ -201,16 +216,12 @@ pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut c
     } else {
         warn!("Session {} missing Name component", target);
     }
-    commands.trigger(SetClientStatus {
-        transition: ClientStatus::Syncing,
-    });
+    commands.trigger(SetClientStatus::Transition(ClientStatus::Syncing));
 }
 
 pub fn client_syncing(mut commands: Commands) {
     info!("TODO: Implement client sync system");
-    commands.trigger(SetClientStatus {
-        transition: ClientStatus::Running,
-    });
+    commands.trigger(SetClientStatus::Transition(ClientStatus::Running));
 }
 
 pub fn on_client_running() {}
@@ -218,23 +229,17 @@ pub fn on_client_running() {}
 pub fn on_client_receive_disconnect() {}
 
 pub fn on_client_disconnecting(
-    event: On<SetClientStatus>,
     mut commands: Commands,
     client_query: Query<Entity, With<LocalClient>>,
 ) {
-    match event.transition {
-        ClientStatus::Disconnecting => {
-            if let Ok(entity) = client_query.single() {
-                commands.trigger(Disconnect::new(entity, "pressed disconnect button"));
-            }
-        }
-        _ => {}
+    if let Ok(entity) = client_query.single() {
+        commands.trigger(Disconnect::new(entity, "pressed disconnect button"));
+    } else if client_query.is_empty() {
     }
 }
 
 pub mod helpers {
     use {
-        crate::notifications::NotifyError,
         aeronet_webtransport::{cert, client::ClientConfig, wtransport::tls::Sha256Digest},
         bevy::prelude::*,
         core::time::Duration,
@@ -265,35 +270,6 @@ pub mod helpers {
             .max_idle_timeout(Some(Duration::from_secs(5)))
             .expect("should be a valid idle timeout")
             .build())
-    }
-
-    pub(super) fn validate_server_address(
-        target: &str,
-        commands: &mut Commands,
-    ) -> Result<SocketAddr, ()> {
-        let target = target.trim();
-        if target.is_empty() {
-            commands.trigger(NotifyError::new("Server address is empty".to_string()));
-            return Err(());
-        }
-
-        let addr: SocketAddr = match target.parse() {
-            Ok(addr) => addr,
-            Err(_) => {
-                commands.trigger(NotifyError::new(format!(
-                    "Invalid server address format: '{}'. Expected 'IP:PORT'",
-                    target
-                )));
-                return Err(());
-            }
-        };
-
-        if addr.port() == 0 {
-            commands.trigger(NotifyError::new("Server port cannot be 0".to_string()));
-            return Err(());
-        }
-
-        Ok(addr)
     }
 
     pub fn parse_target_live(input: &str) -> Option<(String, u16)> {

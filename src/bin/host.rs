@@ -1,4 +1,3 @@
-use crate::client::helpers::parse_target_live;
 use bevy::app::AppExit;
 use bevy::{ecs::system::SystemParam, prelude::*};
 use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
@@ -169,9 +168,9 @@ fn ui_game_menu(
                                 });
                             }
                             SessionType::Client => {
-                                commands.trigger(SetClientStatus {
-                                    transition: ClientStatus::Disconnecting,
-                                });
+                                commands.trigger(SetClientStatus::Transition(
+                                    ClientStatus::Disconnecting,
+                                ));
                             }
                             SessionType::None => {}
                         });
@@ -420,8 +419,8 @@ fn render_multiplayer_join_game(
                 ui.add(egui::TextEdit::singleline(&mut target.input).hint_text("127.0.0.1:8080"));
 
             if response.changed() {
-                let live_valid = parse_target_live(&target.input).is_some();
-                target.is_valid = live_valid;
+                let val = target.input.clone();
+                target.update_input(val);
             }
 
             // Status anzeigen
@@ -436,6 +435,10 @@ fn render_multiplayer_join_game(
                 }
             });
         });
+        ui.label(format!(
+            "Client Target:\nInput:{}\nIP-Address:{:?}\nPort:{}\nIs valid:{}",
+            target.input, target.ip, target.port, target.is_valid
+        ));
 
         is_client_target_valid = target.is_valid;
     }
