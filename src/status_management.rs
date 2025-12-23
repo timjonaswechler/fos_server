@@ -20,7 +20,9 @@ pub use {
         wiki::{WikiMenuEvent, WikiMenuScreen},
     },
     session::{
-        client::{ClientStatus, SetClientStatus},
+        client::{
+            ClientShutdownStep, ClientStatus, SetClientShutdownStep, SetClientStatus,
+        },
         server::{ServerVisibility, SetServerVisibility},
         singleplayer::{
             SetSingleplayerShutdownStep, SetSingleplayerStatus, SingleplayerShutdownStep,

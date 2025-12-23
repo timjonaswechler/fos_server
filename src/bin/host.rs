@@ -146,6 +146,9 @@ fn ui_game_menu(
                                         });
                                     }
                                     ServerVisibility::Public => {
+                                        if let Some(ip) = fos_server::server::helpers::get_local_ip() {
+                                            ui.label(format!("Server IP: {}", ip));
+                                        }
                                         ui.button("Close to LAN").clicked().then(|| {
                                             commands.trigger(SetServerVisibility {
                                                 transition: ServerVisibility::GoingPrivate,

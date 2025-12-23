@@ -3,7 +3,10 @@ use {
         local::LocalClient,
         notifications::NotifyError,
         server::helpers::{DISCOVERY_PORT, MAGIC},
-        status_management::{ClientStatus, MainMenuContext, SetClientStatus},
+        status_management::{
+            ClientShutdownStep, ClientStatus, MainMenuContext, SetClientShutdownStep,
+            SetClientStatus,
+        },
     },
     aeronet::io::{
         connection::{Disconnect, Disconnected},
@@ -31,13 +34,20 @@ impl Plugin for ClientLogicPlugin {
                 TimerMode::Repeating,
             )))
             .add_systems(OnEnter(ClientStatus::Connecting), on_client_connecting)
+            .add_systems(
+                OnEnter(ClientStatus::Disconnecting),
+                on_client_start_disconnecting,
+            )
             .add_observer(on_client_connected)
             .add_systems(
                 Update,
                 client_syncing.run_if(in_state(ClientStatus::Syncing)),
             )
             .add_observer(on_client_connection_failed)
-            .add_systems(Update, on_client_disconnecting)
+            .add_systems(
+                Update,
+                client_disconnecting.run_if(in_state(ClientStatus::Disconnecting)),
+            )
             .add_systems(
                 Update,
                 (client_discover_server, client_discover_server_collect)
@@ -185,20 +195,17 @@ fn on_client_connection_failed(
         if *current_state.get() == ClientStatus::Connecting {
             match &event.reason {
                 DisconnectReason::ByError(err) => {
-                    commands.trigger(NotifyError::new(format!(
-                        "Failed to connect to server: {err:?}"
-                    )));
-                    error!("Failed to connect to server: {err:?}");
-                    client_target.is_valid = false;
-                    commands.trigger(SetClientStatus::Failed);
-                }
-                DisconnectReason::ByPeer(err) => {
-                    error!("Failed to connect to server: {err:?}");
+                    error!("Connection Error: {}", err);
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
                 DisconnectReason::ByUser(err) => {
-                    error!("Failed to connect to server: {err:?}");
+                    error!("Connection Error: {}", err);
+                    client_target.is_valid = false;
+                    commands.trigger(SetClientStatus::Failed);
+                }
+                DisconnectReason::ByPeer(err) => {
+                    error!("Connection Error: {}", err);
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
@@ -228,13 +235,34 @@ pub fn on_client_running() {}
 
 pub fn on_client_receive_disconnect() {}
 
-pub fn on_client_disconnecting(
+pub fn on_client_start_disconnecting(mut commands: Commands) {
+    info!("Starting Client Disconnect sequence");
+    commands.trigger(SetClientShutdownStep::Start);
+}
+
+pub fn client_disconnecting(
     mut commands: Commands,
+    step: Res<State<ClientShutdownStep>>,
     client_query: Query<Entity, With<LocalClient>>,
 ) {
-    if let Ok(entity) = client_query.single() {
-        commands.trigger(Disconnect::new(entity, "pressed disconnect button"));
-    } else if client_query.is_empty() {
+    match step.get() {
+        ClientShutdownStep::DisconnectFromServer => {
+            // 1. Tick: Disconnect from Server
+            if let Ok(entity) = client_query.single() {
+                commands.trigger(Disconnect::new(entity, "client disconnecting"));
+            }
+            commands.trigger(SetClientShutdownStep::Next);
+        }
+        ClientShutdownStep::DespawnLocalClient => {
+            // 2. Tick: Despawn Local Client
+            if let Ok(entity) = client_query.single() {
+                if let Ok(mut entity) = commands.get_entity(entity) {
+                    entity.despawn();
+                }
+            } else if client_query.is_empty() {
+                commands.trigger(SetClientShutdownStep::Done);
+            }
+        }
     }
 }
 
