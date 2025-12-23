@@ -3,9 +3,13 @@ use {
         local::LocalClient,
         notifications::NotifyError,
         server::helpers::{DISCOVERY_PORT, MAGIC},
-        states::{ClientStatus, MenuContext, SetClientStatus},
+        status_management::{ClientStatus, MainMenuContext, SetClientStatus},
     },
-    aeronet::io::{connection::Disconnect, Session},
+    aeronet::io::{
+        connection::{Disconnect, Disconnected},
+        Session,
+    },
+    aeronet_io::connection::DisconnectReason,
     aeronet_webtransport::client::{WebTransportClient, WebTransportClientPlugin},
     bevy::{
         prelude::*,
@@ -32,11 +36,12 @@ impl Plugin for ClientLogicPlugin {
                 Update,
                 client_syncing.run_if(in_state(ClientStatus::Syncing)),
             )
+            .add_observer(on_client_connection_failed)
             .add_observer(on_client_disconnecting)
             .add_systems(
                 Update,
                 (client_discover_server, client_discover_server_collect)
-                    .run_if(in_state(MenuContext::Multiplayer)),
+                    .run_if(in_state(MainMenuContext::Multiplayer)),
             );
     }
 }
@@ -167,10 +172,30 @@ pub fn on_client_connecting(
         ));
 }
 
+fn on_client_connection_failed(
+    event: On<Disconnected>,
+    current_state: Res<State<ClientStatus>>,
+    mut commands: Commands,
+    mut client_target: ResMut<ClientTarget>,
+) {
+    if *current_state.get() == ClientStatus::Connecting {
+        match &event.reason {
+            DisconnectReason::ByError(err) => {
+                commands.trigger(NotifyError::new(format!(
+                    "Failed to connect to server: {err:?}"
+                )));
+                error!("Failed to connect to server: {err:?}");
+                client_target.is_valid = false;
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
     let target = trigger.event_target();
 
-    let name = names.get(target).ok(); // Use .ok() instead of .expect()
+    let name = names.get(target).ok();
     if let Some(name) = name {
         info!("Connected as {}", name.as_str());
     } else {

@@ -1,0 +1,3 @@
+fn_params_layout = "Tall"
+fn_args_layout = "Tall"  # Deprecated, aber noch funktioniert
+fn_arg_indent_style = "Visual"

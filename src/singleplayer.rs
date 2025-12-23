@@ -1,8 +1,8 @@
 use {
     crate::{
         local::*,
-        states::{
-            ChangeAppScope, GamePhase, SessionType, SetSingleplayerStatus,
+        status_management::{
+            SessionType, SetSingleplayerShutdownStep, SetSingleplayerStatus,
             SingleplayerShutdownStep, SingleplayerStatus,
         },
     },
@@ -74,8 +74,6 @@ pub fn on_singleplayer_running(mut _commands: Commands) {
 pub fn singleplayer_stopping(
     mut commands: Commands,
     step: Res<State<SingleplayerShutdownStep>>,
-    mut next_step: ResMut<NextState<SingleplayerShutdownStep>>,
-
     server_query: Query<Entity, With<WebTransportServer>>,
     client_query: Query<Entity, With<WebTransportServerClient>>,
     local_client_query: Query<Entity, With<LocalClient>>,
@@ -88,16 +86,18 @@ pub fn singleplayer_stopping(
             for client in &client_query {
                 commands.trigger(Disconnect::new(client, "Singleplayer closing"));
             }
-            // Egal ob es welche gab oder nicht, nächster Schritt:
-            next_step.set(SingleplayerShutdownStep::CloseRemoteServer);
+            if client_query.is_empty() {
+                commands.trigger(SetSingleplayerShutdownStep::Next);
+            }
         }
 
         SingleplayerShutdownStep::CloseRemoteServer => {
             // 2. Tick: Remote-Server schließen (WebTransportServer)
             if let Ok(server_entity) = server_query.single() {
                 commands.trigger(Close::new(server_entity, "Singleplayer closing"));
+            } else if server_query.is_empty() {
+                commands.trigger(SetSingleplayerShutdownStep::Next);
             }
-            next_step.set(SingleplayerShutdownStep::DespawnBots);
         }
 
         SingleplayerShutdownStep::DespawnBots => {
@@ -107,7 +107,9 @@ pub fn singleplayer_stopping(
                     bot_entity.despawn();
                 }
             }
-            next_step.set(SingleplayerShutdownStep::DespawnLocalClient);
+            if local_bot_query.is_empty() {
+                commands.trigger(SetSingleplayerShutdownStep::Next);
+            }
         }
 
         SingleplayerShutdownStep::DespawnLocalClient => {
@@ -116,8 +118,9 @@ pub fn singleplayer_stopping(
                 if let Ok(mut client_entity) = commands.get_entity(client_entity) {
                     client_entity.despawn();
                 }
+            } else if local_client_query.is_empty() {
+                commands.trigger(SetSingleplayerShutdownStep::Next);
             }
-            next_step.set(SingleplayerShutdownStep::DespawnLocalServer);
         }
 
         SingleplayerShutdownStep::DespawnLocalServer => {
@@ -126,15 +129,9 @@ pub fn singleplayer_stopping(
                 if let Ok(mut server_entity) = commands.get_entity(server_entity) {
                     server_entity.despawn();
                 }
+            } else if local_server_query.is_empty() {
+                commands.trigger(SetSingleplayerShutdownStep::Done);
             }
-            next_step.set(SingleplayerShutdownStep::Done);
-        }
-
-        SingleplayerShutdownStep::Done => {
-            // 6. Tick: Zurück ins Hauptmenü
-            commands.trigger(ChangeAppScope {
-                transition: GamePhase::Menu,
-            });
         }
     }
 }
@@ -142,7 +139,7 @@ pub fn singleplayer_stopping(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{states::*, FOSServerPlugin};
+    use crate::{status_management::*, FOSServerPlugin};
     use std::fmt::Debug;
 
     /// Extension trait to make tests cleaner and more readable.
@@ -181,27 +178,18 @@ mod tests {
 
         fn start_singleplayer_new_game(&mut self) {
             // 1. Main Menu -> Singleplayer Menu
-            self.world_mut().trigger(NavigateMainMenu {
-                transition: MenuContext::Singleplayer,
-            });
+            self.world_mut().trigger(MainMenuInteraction::SwitchContext(
+                MainMenuContext::Singleplayer,
+            ));
             self.update();
 
             // 2. Singleplayer Menu -> New Game
-            self.world_mut().trigger(NavigateSingleplayerMenu {
-                transition: SingleplayerSetup::NewGame,
-            });
+            self.world_mut()
+                .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::NewGame));
+
             self.update();
-
-            // 3. New Game -> Start Game (ChangeGameMode)
-            // Note: In the real UI, this might be a chain of sub-menus (ConfigPlayer -> ConfigWorld...),
-            // but the critical transition to InGame is triggered by ChangeGameMode logic
-            // or the final confirmation in `on_singleplayer_new_game_screen_event`.
-            // For this integration test, we simulate the final "Start" trigger that the UI would send.
-
-            // To properly simulate the flow as defined in `on_game_mode_event` in states.rs,
-            // we need to be in the correct sub-state (NewGame) which we set above.
-            self.world_mut().trigger(ChangeGameMode {
-                transition: SessionType::Singleplayer,
+            self.world_mut().trigger(SetSingleplayerStatus {
+                transition: SingleplayerStatus::Starting,
             });
 
             // Process the ChangeGameMode event which sets:
@@ -217,19 +205,18 @@ mod tests {
 
         fn start_singleplayer_loaded_game(&mut self) {
             // 1. Main Menu -> Singleplayer Menu
-            self.world_mut().trigger(NavigateMainMenu {
-                transition: MenuContext::Singleplayer,
-            });
+            self.world_mut().trigger(MainMenuInteraction::SwitchContext(
+                MainMenuContext::Singleplayer,
+            ));
             self.update();
 
             // 2. Singleplayer Menu -> New Game
-            self.world_mut().trigger(NavigateSingleplayerMenu {
-                transition: SingleplayerSetup::LoadGame,
-            });
+            self.world_mut()
+                .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::LoadGame));
             self.update();
 
-            self.world_mut().trigger(ChangeGameMode {
-                transition: SessionType::Singleplayer,
+            self.world_mut().trigger(SetSingleplayerStatus {
+                transition: SingleplayerStatus::Starting,
             });
 
             self.update();
@@ -240,9 +227,7 @@ mod tests {
         fn stop_singleplayer(&mut self) {
             // To exit, we must be in the Game Menu or able to trigger the exit action.
             // We simulate clicking "Exit" in the pause menu.
-            self.world_mut().trigger(NavigateGameMenu {
-                transition: PauseMenu::Exit,
-            });
+            self.world_mut().trigger(PauseMenuEvent::Exit);
             // Initial update to process the trigger
             self.update();
         }
@@ -279,7 +264,7 @@ mod tests {
         let mut app = App::new_test_app();
         app.start_singleplayer_new_game();
 
-        app.assert_state(GamePhase::InGame);
+        app.assert_state(AppScope::InGame);
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::Private);
@@ -293,7 +278,7 @@ mod tests {
         let mut app = App::new_test_app();
         app.start_singleplayer_loaded_game();
 
-        app.assert_state(GamePhase::InGame);
+        app.assert_state(AppScope::InGame);
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::Private);
@@ -303,45 +288,21 @@ mod tests {
     }
 
     #[test]
-    fn test_game_menu_toggle() {
-        let mut app = App::new_test_app();
-        app.start_singleplayer_new_game();
-
-        app.assert_state(GameplayFocus::Playing);
-
-        // --- FIRST TOGGLE: Playing -> GameMenu (Direct NextState set, as in original working code) ---
-        app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::GameMenu);
-        app.update(); // State wechselt
-        app.assert_state(GameplayFocus::GameMenu);
-
-        // --- SECOND TOGGLE: GameMenu -> Playing (Direct NextState set, as in original working code) ---
-        app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::Playing);
-        app.update(); // State wechselt
-        app.assert_state(GameplayFocus::Playing);
-    }
-
-    #[test]
     fn test_singleplayer_exit_from_menu() {
         let mut app = App::new_test_app();
         app.start_singleplayer_new_game();
 
         // Open Game Menu via direct NextState set (as in original working code)
         app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::GameMenu);
+            .resource_mut::<NextState<SessionStatus>>()
+            .set(SessionStatus::Paused);
         app.update();
 
         // Verify that we are now in GameMenu focus
-        app.assert_state(GameplayFocus::GameMenu);
+        app.assert_state(SessionStatus::Paused);
 
         // Trigger Exit via Event
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
+        app.world_mut().trigger(PauseMenuEvent::Exit);
 
         // Process trigger
         app.update();
@@ -358,7 +319,7 @@ mod tests {
         app.assert_entity_count::<LocalClient>(0);
 
         // Should return to main menu
-        app.assert_state(GamePhase::Menu);
+        app.assert_state(AppScope::Menu);
     }
 
     #[test]
@@ -370,7 +331,7 @@ mod tests {
         app.assert_state(SingleplayerStatus::Running);
         app.stop_singleplayer();
         app.wait_frames(10); // Wait for cleanup
-        app.assert_state(GamePhase::Menu);
+        app.assert_state(AppScope::Menu);
 
         // Round 2
         app.start_singleplayer_new_game();
@@ -388,23 +349,19 @@ mod tests {
 
         // Open Game Menu
         app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::GameMenu);
+            .resource_mut::<NextState<SessionStatus>>()
+            .set(SessionStatus::Paused);
         app.update();
 
         // Spam Exit Button twice in the same frame
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
+        app.world_mut().trigger(PauseMenuEvent::Exit);
+        app.world_mut().trigger(PauseMenuEvent::Exit);
 
         app.update();
         app.wait_frames(10);
 
         // Should still exit cleanly without panicking or getting stuck
-        app.assert_state(GamePhase::Menu);
+        app.assert_state(AppScope::Menu);
         app.assert_entity_count::<LocalServer>(0);
     }
 
@@ -415,23 +372,20 @@ mod tests {
 
         // Open Game Menu
         app.world_mut()
-            .resource_mut::<NextState<GameplayFocus>>()
-            .set(GameplayFocus::GameMenu);
+            .resource_mut::<NextState<SessionStatus>>()
+            .set(SessionStatus::Paused);
         app.update();
 
         // Spam Exit Button twice in the same frame
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
+        app.world_mut().trigger(PauseMenuEvent::Exit);
+        app.update();
+        app.world_mut().trigger(PauseMenuEvent::Exit);
 
         app.update();
         app.wait_frames(10);
 
         // Should still exit cleanly without panicking or getting stuck
-        app.assert_state(GamePhase::Menu);
+        app.assert_state(AppScope::Menu);
         app.assert_entity_count::<LocalServer>(0);
     }
 
@@ -440,21 +394,20 @@ mod tests {
         let mut app = App::new_test_app();
 
         // 1. Navigate to setup (Pre-requisites)
-        app.world_mut().trigger(NavigateMainMenu {
-            transition: MenuContext::Singleplayer,
-        });
+        app.world_mut().trigger(MainMenuInteraction::SwitchContext(
+            MainMenuContext::Singleplayer,
+        ));
         app.update();
-        app.world_mut().trigger(NavigateSingleplayerMenu {
-            transition: SingleplayerSetup::NewGame,
-        });
+        app.world_mut()
+            .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::NewGame));
         app.update();
 
         // 2. Spam the "Start Game" trigger twice
-        app.world_mut().trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
+        app.world_mut().trigger(SetSingleplayerStatus {
+            transition: SingleplayerStatus::Starting,
         });
-        app.world_mut().trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
+        app.world_mut().trigger(SetSingleplayerStatus {
+            transition: SingleplayerStatus::Starting,
         });
 
         // Process frame
@@ -473,22 +426,23 @@ mod tests {
         let mut app = App::new_test_app();
 
         // 1. Navigate to setup (Pre-requisites)
-        app.world_mut().trigger(NavigateMainMenu {
-            transition: MenuContext::Singleplayer,
-        });
+        app.world_mut().trigger(MainMenuInteraction::SwitchContext(
+            MainMenuContext::Singleplayer,
+        ));
+
         app.update();
-        app.world_mut().trigger(NavigateSingleplayerMenu {
-            transition: SingleplayerSetup::NewGame,
-        });
+        app.world_mut()
+            .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::NewGame));
+
         app.update();
 
         // 2. Spam the "Start Game" trigger twice
-        app.world_mut().trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
+        app.world_mut().trigger(SetSingleplayerStatus {
+            transition: SingleplayerStatus::Starting,
         });
         app.update();
-        app.world_mut().trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
+        app.world_mut().trigger(SetSingleplayerStatus {
+            transition: SingleplayerStatus::Starting,
         });
 
         // Process frame

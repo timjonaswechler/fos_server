@@ -2,7 +2,7 @@ pub mod client;
 pub mod notifications;
 pub mod server;
 pub mod singleplayer;
-pub mod states;
+pub mod status_management;
 pub use notifications::*;
 pub mod local;
 
@@ -13,7 +13,7 @@ use {
     serde::{Deserialize, Serialize},
     server::ServerLogicPlugin,
     singleplayer::SingleplayerLogicPlugin,
-    states::StatesPlugin,
+    status_management::StatusManagementPlugin,
 };
 
 pub struct FOSServerPlugin;
@@ -24,7 +24,7 @@ pub struct DummyEvent;
 impl Plugin for FOSServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
-            StatesPlugin,
+            StatusManagementPlugin,
             SingleplayerLogicPlugin,
             ServerLogicPlugin,
             ClientLogicPlugin,

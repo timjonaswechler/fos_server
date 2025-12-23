@@ -1,5 +1,5 @@
 use {
-    crate::states::{ServerVisibility, SetServerVisibility, SingleplayerStatus},
+    crate::status_management::{ServerVisibility, SetServerVisibility, SingleplayerStatus},
     aeronet::io::{
         connection::Disconnect,
         server::{Close, Closed, Server, ServerEndpoint},
@@ -224,7 +224,7 @@ pub fn on_server_shutdown_notify_clients() {
 
 pub mod helpers {
     use {
-        crate::states::ServerVisibility,
+        crate::status_management::ServerVisibility,
         aeronet_webtransport::server::{SessionRequest, SessionResponse},
         bevy::prelude::*,
         std::net::UdpSocket,
@@ -336,7 +336,7 @@ pub mod helpers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{local::*, states::*, FOSServerPlugin};
+    use crate::{local::*, status_management::*, FOSServerPlugin};
     use std::fmt::Debug;
 
     /// Extension trait to make tests cleaner and more readable.
@@ -379,40 +379,45 @@ mod tests {
 
         fn start_singleplayer_new_game(&mut self) {
             // 1. Main Menu -> Singleplayer Menu
-            self.world_mut().trigger(NavigateMainMenu {
-                transition: MenuContext::Singleplayer,
-            });
+            self.world_mut().trigger(MainMenuInteraction::SwitchContext(
+                MainMenuContext::Singleplayer,
+            ));
             self.update();
 
             // 2. Singleplayer Menu -> New Game
-            self.world_mut().trigger(NavigateSingleplayerMenu {
-                transition: SingleplayerSetup::NewGame,
+            self.world_mut()
+                .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::NewGame));
+
+            self.update();
+            self.world_mut().trigger(SetSingleplayerStatus {
+                transition: SingleplayerStatus::Starting,
             });
+
+            // Process the ChangeGameMode event which sets:
+            // - GamePhase::InGame
+            // - SingleplayerStatus::Starting
             self.update();
 
-            self.world_mut().trigger(ChangeGameMode {
-                transition: SessionType::Singleplayer,
-            });
-            self.update();
+            // Process internal transitions (Starting -> Ready -> Running)
+            // The `on_singleplayer_starting` system spawns entities, then `on_singleplayer_ready` runs.
             self.update();
             self.update();
         }
 
         fn start_singleplayer_loaded_game(&mut self) {
             // 1. Main Menu -> Singleplayer Menu
-            self.world_mut().trigger(NavigateMainMenu {
-                transition: MenuContext::Singleplayer,
-            });
+            self.world_mut().trigger(MainMenuInteraction::SwitchContext(
+                MainMenuContext::Singleplayer,
+            ));
             self.update();
 
             // 2. Singleplayer Menu -> New Game
-            self.world_mut().trigger(NavigateSingleplayerMenu {
-                transition: SingleplayerSetup::LoadGame,
-            });
+            self.world_mut()
+                .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::LoadGame));
             self.update();
 
-            self.world_mut().trigger(ChangeGameMode {
-                transition: SessionType::Singleplayer,
+            self.world_mut().trigger(SetSingleplayerStatus {
+                transition: SingleplayerStatus::Starting,
             });
 
             self.update();
@@ -422,20 +427,18 @@ mod tests {
 
         fn start_singleplayer_host_new_game(&mut self) {
             // 1. Main Menu -> Singleplayer Menu
-            self.world_mut().trigger(NavigateMainMenu {
-                transition: MenuContext::Multiplayer,
-            });
+            self.world_mut().trigger(MainMenuInteraction::SwitchContext(
+                MainMenuContext::Multiplayer,
+            ));
+
             self.update();
 
             // 2. Singleplayer Menu -> New Game
-            self.world_mut().trigger(NavigateMultiplayerMenu {
-                transition: MultiplayerSetup::HostNewGame,
-            });
+            self.world_mut()
+                .trigger(SetMultiplayerMenu::Navigate(MultiplayerSetup::HostNewGame));
             self.update();
 
-            self.world_mut().trigger(ChangeGameMode {
-                transition: SessionType::Singleplayer,
-            });
+            self.world_mut().trigger(SetNewHostGame::Confirm);
 
             self.update();
             self.update();
@@ -443,20 +446,19 @@ mod tests {
         }
 
         fn start_singleplayer_host_saved_game(&mut self) {
-            self.world_mut().trigger(NavigateMainMenu {
-                transition: MenuContext::Multiplayer,
-            });
+            self.world_mut().trigger(MainMenuInteraction::SwitchContext(
+                MainMenuContext::Multiplayer,
+            ));
+
             self.update();
 
             // 2. Singleplayer Menu -> New Game
-            self.world_mut().trigger(NavigateMultiplayerMenu {
-                transition: MultiplayerSetup::HostSavedGame,
-            });
+            self.world_mut().trigger(SetMultiplayerMenu::Navigate(
+                MultiplayerSetup::HostSavedGame,
+            ));
             self.update();
 
-            self.world_mut().trigger(ChangeGameMode {
-                transition: SessionType::Singleplayer,
-            });
+            self.world_mut().trigger(SetSavedHostGame::Confirm);
 
             self.update();
             self.update();
@@ -466,9 +468,7 @@ mod tests {
         fn stop_singleplayer(&mut self) {
             // To exit, we must be in the Game Menu or able to trigger the exit action.
             // We simulate clicking "Exit" in the pause menu.
-            self.world_mut().trigger(NavigateGameMenu {
-                transition: PauseMenu::Exit,
-            });
+            self.world_mut().trigger(PauseMenuEvent::Exit);
             // Initial update to process the trigger
             self.update();
         }
@@ -501,13 +501,13 @@ mod tests {
 
         fn toggle_game_menu(&mut self) {
             let current_focus = {
-                let current_state = self.world().resource::<State<GameplayFocus>>();
+                let current_state = self.world().resource::<State<SessionStatus>>();
                 current_state.get().clone()
             };
-            let mut next = self.world_mut().resource_mut::<NextState<GameplayFocus>>();
+            let mut next = self.world_mut().resource_mut::<NextState<SessionStatus>>();
             match current_focus {
-                GameplayFocus::Playing => next.set(GameplayFocus::GameMenu),
-                GameplayFocus::GameMenu => next.set(GameplayFocus::Playing),
+                SessionStatus::Playing => next.set(SessionStatus::Paused),
+                SessionStatus::Paused => next.set(SessionStatus::Playing),
             }
         }
     }
@@ -517,24 +517,24 @@ mod tests {
         let mut app = App::new_test_app();
         app.start_singleplayer_new_game();
 
-        app.assert_state(GamePhase::InGame);
+        app.assert_state(AppScope::InGame);
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::Private);
-        app.assert_state(GameplayFocus::Playing);
+        app.assert_state(SessionStatus::Playing);
         app.assert_entity_count::<LocalServer>(1);
         app.assert_entity_count::<LocalClient>(1);
 
         // server going public sequence
         app.toggle_game_menu();
         app.update();
-        app.assert_state(GameplayFocus::GameMenu);
+        app.assert_state(SessionStatus::Paused);
         app.world_mut().trigger(SetServerVisibility {
             transition: ServerVisibility::GoingPublic,
         });
         app.toggle_game_menu();
         app.update();
-        app.assert_state(GameplayFocus::Playing);
+        app.assert_state(SessionStatus::Playing);
 
         app.wait_frames(5);
         println!("waited 5 frames");
@@ -547,17 +547,15 @@ mod tests {
         // closing sequnce starts
         app.toggle_game_menu();
         app.update();
-        app.assert_state(GameplayFocus::GameMenu);
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
+        app.assert_state(SessionStatus::Paused);
+        app.world_mut().trigger(PauseMenuEvent::Exit);
         app.toggle_game_menu();
         app.update();
         app.assert_state(SingleplayerStatus::Stopping);
 
         // at the moemnt there are 6 steps in the Singleplayer stopping phase
         app.wait_frames(6);
-        app.assert_state(GamePhase::Menu);
+        app.assert_state(AppScope::Menu);
         app.assert_entity_count::<WebTransportServer>(0);
         app.assert_entity_count::<ServerEndpoint>(0);
         app.assert_entity_count::<Server>(0);
@@ -568,24 +566,24 @@ mod tests {
         let mut app = App::new_test_app();
         app.start_singleplayer_loaded_game();
 
-        app.assert_state(GamePhase::InGame);
+        app.assert_state(AppScope::InGame);
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::Private);
-        app.assert_state(GameplayFocus::Playing);
+        app.assert_state(SessionStatus::Playing);
         app.assert_entity_count::<LocalServer>(1);
         app.assert_entity_count::<LocalClient>(1);
 
         // server going public sequence
         app.toggle_game_menu();
         app.update();
-        app.assert_state(GameplayFocus::GameMenu);
+        app.assert_state(SessionStatus::Paused);
         app.world_mut().trigger(SetServerVisibility {
             transition: ServerVisibility::GoingPublic,
         });
         app.toggle_game_menu();
         app.update();
-        app.assert_state(GameplayFocus::Playing);
+        app.assert_state(SessionStatus::Playing);
 
         app.wait_frames(5);
         app.assert_entity_count::<WebTransportServer>(1);
@@ -600,17 +598,15 @@ mod tests {
         // closing sequnce starts
         app.toggle_game_menu();
         app.update();
-        app.assert_state(GameplayFocus::GameMenu);
-        app.world_mut().trigger(NavigateGameMenu {
-            transition: PauseMenu::Exit,
-        });
+        app.assert_state(SessionStatus::Paused);
+        app.world_mut().trigger(PauseMenuEvent::Exit);
         app.toggle_game_menu();
         app.update();
         app.assert_state(SingleplayerStatus::Stopping);
 
         // at the moemnt there are 6 steps in the Singleplayer stopping phase
         app.wait_frames(6);
-        app.assert_state(GamePhase::Menu);
+        app.assert_state(AppScope::Menu);
         app.assert_entity_count::<WebTransportServer>(0);
         app.assert_entity_count::<ServerEndpoint>(0);
         app.assert_entity_count::<Server>(0);
@@ -621,7 +617,7 @@ mod tests {
         let mut app = App::new_test_app();
         app.start_singleplayer_host_new_game();
 
-        app.assert_state(GamePhase::InGame);
+        app.assert_state(AppScope::InGame);
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::GoingPublic);
@@ -640,7 +636,7 @@ mod tests {
         let mut app = App::new_test_app();
         app.start_singleplayer_host_saved_game();
 
-        app.assert_state(GamePhase::InGame);
+        app.assert_state(AppScope::InGame);
         app.assert_state(SessionType::Singleplayer);
         app.assert_state(SingleplayerStatus::Running);
         app.assert_state(ServerVisibility::GoingPublic);

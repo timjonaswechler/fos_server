@@ -5,7 +5,7 @@ use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use fos_server::{
     client::{ClientTarget, DiscoveredServers, SetClientTarget},
-    states::*,
+    status_management::*,
     *,
 };
 
@@ -20,25 +20,25 @@ fn main() -> AppExit {
         .add_systems(Startup, setup_camera_system)
         .add_systems(
             EguiPrimaryContextPass,
-            ui_menu_system.run_if(in_state(GamePhase::Menu)),
+            ui_menu_system.run_if(in_state(AppScope::Menu)),
         )
         .add_systems(
             EguiPrimaryContextPass,
             ui_singleplayer_system
-                .run_if(in_state(GamePhase::InGame))
+                .run_if(in_state(AppScope::InGame))
                 .run_if(in_state(SessionType::Singleplayer)),
         )
         .add_systems(
             EguiPrimaryContextPass,
             ui_client_system
-                .run_if(in_state(GamePhase::InGame))
+                .run_if(in_state(AppScope::InGame))
                 .run_if(in_state(SessionType::Client)),
         )
         .add_systems(
             EguiPrimaryContextPass,
             ui_game_menu
-                .run_if(in_state(GamePhase::InGame))
-                .run_if(in_state(GameplayFocus::GameMenu)),
+                .run_if(in_state(AppScope::InGame))
+                .run_if(in_state(SessionStatus::Paused)),
         )
         .run()
 }
@@ -51,18 +51,16 @@ fn setup_camera_system(mut commands: Commands) {
 struct MenuUiParams<'w, 's> {
     commands: Commands<'w, 's>,
     egui: EguiContexts<'w, 's>,
-    app_state: Res<'w, State<GamePhase>>,
-    menu_state: Res<'w, State<MenuContext>>,
+    app_state: Res<'w, State<AppScope>>,
+    menu_state: Res<'w, State<MainMenuContext>>,
     singleplayer_menu_state: Option<Res<'w, State<SingleplayerSetup>>>,
     multiplayer_menu_state: Option<Res<'w, State<MultiplayerSetup>>>,
     discovered_servers: Option<Res<'w, DiscoveredServers>>,
     client_target: Option<ResMut<'w, ClientTarget>>,
-    exit: MessageWriter<'w, AppExit>,
 }
 
 struct MenuActions<'w, 's> {
     commands: Commands<'w, 's>,
-    exit: MessageWriter<'w, AppExit>,
 }
 
 // --- UI SYSTEM ---
@@ -70,18 +68,20 @@ struct MenuActions<'w, 's> {
 fn ui_singleplayer_system(
     mut _commands: Commands,
     mut egui: EguiContexts,
-    app_state: Res<State<GamePhase>>,
+    app_state: Res<State<AppScope>>,
     game_mode_state: Res<State<SessionType>>,
     singleplayer_state: Res<State<SingleplayerStatus>>,
+    session_life_cycle: Option<Res<State<SessionLifecycle>>>,
+    shutdown_step: Option<Res<State<SingleplayerShutdownStep>>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game - Singleplayer").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| {
-            if *app_state.get() == GamePhase::InGame
+            if *app_state.get() == AppScope::InGame
                 && *game_mode_state.get() == SessionType::Singleplayer
             {
                 ui.label(format!(
-                    "States: \n GamePhase: {:?}\nGameMode: {:?}\nSingleplayer: {:?}\n",
-                    app_state, game_mode_state, singleplayer_state
+                    "States: \n AppScope: {:?}\nSessionType: {:?}\nSingleplayer: {:?}\n Lifecycle: {:?}\n ShutdownStep: {:?}",
+                    app_state, game_mode_state, singleplayer_state, session_life_cycle, shutdown_step
                 ));
                 match *singleplayer_state.get() {
                     SingleplayerStatus::Running => {
@@ -101,16 +101,16 @@ fn ui_singleplayer_system(
 fn ui_client_system(
     mut _commands: Commands,
     mut egui: EguiContexts,
-    app_state: Res<State<GamePhase>>,
+    app_state: Res<State<AppScope>>,
     game_mode_state: Res<State<SessionType>>,
     client_state: Res<State<ClientStatus>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game - Client").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| match *app_state.get() {
-            GamePhase::InGame => match *game_mode_state.get() {
+            AppScope::InGame => match *game_mode_state.get() {
                 SessionType::Client => {
                     ui.label(format!(
-                        "States: \n GamePhase: {:?}\nGameMode: {:?}\nClientState: {:?}\n",
+                        "States: \n AppScope: {:?}\nGameMode: {:?}\nClientState: {:?}\n",
                         app_state, game_mode_state, client_state
                     ));
                 }
@@ -125,15 +125,15 @@ fn ui_client_system(
 fn ui_game_menu(
     mut commands: Commands,
     mut egui: EguiContexts,
-    app_state: Res<State<GamePhase>>,
+    app_state: Res<State<AppScope>>,
     game_mode_state: Res<State<SessionType>>,
-    in_game_mode_state: Res<State<GameplayFocus>>,
+    in_game_mode_state: Res<State<SessionStatus>>,
     server_visibility: Option<Res<State<ServerVisibility>>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game Menu").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| match *app_state.get() {
-            GamePhase::InGame => match *in_game_mode_state.get() {
-                GameplayFocus::GameMenu => {
+            AppScope::InGame => match *in_game_mode_state.get() {
+                SessionStatus::Paused => {
                     ui.label("Game Menu");
                     match *game_mode_state.get() {
                         SessionType::Singleplayer => {
@@ -158,6 +158,7 @@ fn ui_game_menu(
                             }
                         }
                         SessionType::Client => {}
+                        SessionType::None => {}
                     };
                     ui.button("Back")
                         .clicked()
@@ -172,6 +173,7 @@ fn ui_game_menu(
                                     transition: ClientStatus::Disconnecting,
                                 });
                             }
+                            SessionType::None => {}
                         });
                 }
                 _ => {} // playing
@@ -197,23 +199,22 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
     // 3. mutables „Action“-Bundle bauen für Commands + Exit
     let mut actions = MenuActions {
         commands: params.commands,
-        exit: params.exit,
     };
 
     egui::Window::new("APP Menu").show(ctx, |ui| {
         ui.vertical_centered_justified(|ui| {
-            if app_state.get() != &GamePhase::Menu {
+            if app_state.get() != &AppScope::Menu {
                 return;
             }
 
             match menu_state.get() {
-                MenuContext::Main => render_menu_main(ui, &mut actions),
-                MenuContext::Singleplayer => render_singleplayer_menu(ui, &mut actions, single),
-                MenuContext::Multiplayer => {
+                MainMenuContext::Main => render_menu_main(ui, &mut actions),
+                MainMenuContext::Singleplayer => render_singleplayer_menu(ui, &mut actions, single),
+                MainMenuContext::Multiplayer => {
                     render_multiplayer_menu(ui, &mut actions, multi, discovered, client_target)
                 }
-                MenuContext::Wiki => render_menu_wiki(ui, &mut actions),
-                MenuContext::Settings => render_menu_settings(ui, &mut actions),
+                MainMenuContext::Wiki => render_menu_wiki(ui, &mut actions),
+                MainMenuContext::Settings => render_menu_settings(ui, &mut actions),
             }
         });
     });
@@ -223,27 +224,27 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
 
 fn render_menu_main(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Singleplayer").clicked() {
-        actions.commands.trigger(NavigateMainMenu {
-            transition: MenuContext::Singleplayer,
-        });
+        actions.commands.trigger(MainMenuInteraction::SwitchContext(
+            MainMenuContext::Singleplayer,
+        ));
     }
     if ui.button("Multiplayer").clicked() {
-        actions.commands.trigger(NavigateMainMenu {
-            transition: MenuContext::Multiplayer,
-        });
+        actions.commands.trigger(MainMenuInteraction::SwitchContext(
+            MainMenuContext::Multiplayer,
+        ));
     }
     if ui.button("Wiki").clicked() {
-        actions.commands.trigger(NavigateMainMenu {
-            transition: MenuContext::Wiki,
-        });
+        actions
+            .commands
+            .trigger(MainMenuInteraction::SwitchContext(MainMenuContext::Wiki));
     }
     if ui.button("Settings").clicked() {
-        actions.commands.trigger(NavigateMainMenu {
-            transition: MenuContext::Settings,
-        });
+        actions.commands.trigger(MainMenuInteraction::SwitchContext(
+            MainMenuContext::Settings,
+        ));
     }
     if ui.button("Quit").clicked() {
-        actions.exit.write(AppExit::Success);
+        actions.commands.trigger(MainMenuInteraction::Exit);
     }
 }
 
@@ -273,45 +274,35 @@ fn render_singleplayer_menu(
 
 fn render_singleplayer_overview(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("New Game").clicked() {
-        actions.commands.trigger(NavigateSingleplayerMenu {
-            transition: SingleplayerSetup::NewGame,
-        });
+        actions
+            .commands
+            .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::NewGame));
     }
     if ui.button("Load Game").clicked() {
-        actions.commands.trigger(NavigateSingleplayerMenu {
-            transition: SingleplayerSetup::LoadGame,
-        });
+        actions
+            .commands
+            .trigger(SetSingleplayerMenu::Navigate(SingleplayerSetup::LoadGame));
     }
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateMainMenu {
-            transition: MenuContext::Main,
-        });
+        actions.commands.trigger(SetSingleplayerMenu::Back);
     }
 }
 
 fn render_singleplayer_new_game(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Start").clicked() {
-        actions.commands.trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
-        });
+        actions.commands.trigger(SetSingleplayerNewGame::Confirm);
     }
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateSingleplayerMenu {
-            transition: SingleplayerSetup::Overview,
-        });
+        actions.commands.trigger(SetSingleplayerNewGame::Back);
     }
 }
 
 fn render_singleplayer_load_game(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Load").clicked() {
-        actions.commands.trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
-        });
+        actions.commands.trigger(SetSingleplayerSavedGame::Confirm);
     }
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateSingleplayerMenu {
-            transition: SingleplayerSetup::Overview,
-        });
+        actions.commands.trigger(SetSingleplayerSavedGame::Back);
     }
 }
 
@@ -346,55 +337,45 @@ fn render_multiplayer_menu(
 
 fn render_multiplayer_overview(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Host new Game").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::HostNewGame,
-        });
+        actions
+            .commands
+            .trigger(SetMultiplayerMenu::Navigate(MultiplayerSetup::HostNewGame));
     }
 
     if ui.button("Host saved Game").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::HostSavedGame,
-        });
+        actions.commands.trigger(SetMultiplayerMenu::Navigate(
+            MultiplayerSetup::HostSavedGame,
+        ));
     }
 
     if ui.button("Join Game").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::JoinGame,
-        });
+        actions
+            .commands
+            .trigger(SetMultiplayerMenu::Navigate(MultiplayerSetup::JoinGame));
     }
 
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateMainMenu {
-            transition: MenuContext::Main,
-        });
+        actions.commands.trigger(SetMultiplayerMenu::Back);
     }
 }
 
 fn render_multiplayer_host_new(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("New Game").clicked() {
-        actions.commands.trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
-        });
+        actions.commands.trigger(SetNewHostGame::Confirm);
     }
 
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::Overview,
-        });
+        actions.commands.trigger(SetNewHostGame::Back);
     }
 }
 
 fn render_multiplayer_host_saved(ui: &mut egui::Ui, actions: &mut MenuActions) {
     if ui.button("Load Game").clicked() {
-        actions.commands.trigger(ChangeGameMode {
-            transition: SessionType::Singleplayer,
-        });
+        actions.commands.trigger(SetSavedHostGame::Confirm);
     }
 
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::Overview,
-        });
+        actions.commands.trigger(SetSavedHostGame::Back);
     }
 }
 
@@ -467,26 +448,22 @@ fn render_multiplayer_join_game(
     );
 
     if join_button.clicked() {
-        actions.commands.trigger(ChangeGameMode {
-            transition: SessionType::Client,
-        });
+        actions.commands.trigger(SetJoinGame::Confirm);
     }
 
     ui.separator();
 
     if ui.button("Back").clicked() {
-        actions.commands.trigger(NavigateMultiplayerMenu {
-            transition: MultiplayerSetup::Overview,
-        });
+        actions.commands.trigger(SetJoinGame::Back);
     }
 }
 
 fn render_menu_wiki(ui: &mut egui::Ui, actions: &mut MenuActions) {
     ui.vertical_centered_justified(|ui| {
         if ui.button("Back").clicked() {
-            actions.commands.trigger(NavigateMainMenu {
-                transition: MenuContext::Main,
-            });
+            actions
+                .commands
+                .trigger(MainMenuInteraction::SwitchContext(MainMenuContext::Main));
         }
     });
 }
@@ -494,9 +471,9 @@ fn render_menu_wiki(ui: &mut egui::Ui, actions: &mut MenuActions) {
 fn render_menu_settings(ui: &mut egui::Ui, actions: &mut MenuActions) {
     ui.vertical_centered_justified(|ui| {
         if ui.button("Back").clicked() {
-            actions.commands.trigger(NavigateMainMenu {
-                transition: MenuContext::Main,
-            });
+            actions
+                .commands
+                .trigger(MainMenuInteraction::SwitchContext(MainMenuContext::Main));
         }
     });
 }
