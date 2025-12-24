@@ -108,6 +108,7 @@ fn handle_overview_nav(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_host_new_game_nav(
     trigger: On<SetNewHostGame>,
     current_screen: Res<State<HostNewGameMenuScreen>>,
@@ -151,6 +152,7 @@ fn handle_host_new_game_nav(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_host_saved_game_nav(
     trigger: On<SetSavedHostGame>,
     current_screen: Res<State<HostSavedGameMenuScreen>>,
@@ -166,18 +168,16 @@ fn handle_host_saved_game_nav(
     }
 
     match trigger.event() {
-        SetSavedHostGame::Next => match current_screen.get() {
-            HostSavedGameMenuScreen::Overview => {
-                next_screen.set(HostSavedGameMenuScreen::ConfigServer)
+        SetSavedHostGame::Next => {
+            if *current_screen.get() == HostSavedGameMenuScreen::Overview {
+                next_screen.set(HostSavedGameMenuScreen::ConfigServer);
             }
-            _ => {}
-        },
-        SetSavedHostGame::Previous => match current_screen.get() {
-            HostSavedGameMenuScreen::ConfigServer => {
-                next_screen.set(HostSavedGameMenuScreen::Overview)
+        }
+        SetSavedHostGame::Previous => {
+            if *current_screen.get() == HostSavedGameMenuScreen::ConfigServer {
+                next_screen.set(HostSavedGameMenuScreen::Overview);
             }
-            _ => {}
-        },
+        }
         SetSavedHostGame::Confirm => {
             next_session_type.set(SessionType::Singleplayer);
             next_singleplayer_state.set(SingleplayerStatus::Starting);

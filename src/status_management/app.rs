@@ -30,12 +30,9 @@ fn on_change_app_scope(
     mut menu_state: ResMut<NextState<MainMenuContext>>,
     mut session_type: ResMut<NextState<SessionType>>,
 ) {
-    match event.transition {
-        AppScope::Menu => {
-            state.set(AppScope::Menu);
-            menu_state.set(MainMenuContext::Main);
-            session_type.set(SessionType::None);
-        }
-        _ => {}
+    if event.transition == AppScope::Menu {
+        state.set(AppScope::Menu);
+        menu_state.set(MainMenuContext::Main);
+        session_type.set(SessionType::None);
     }
 }

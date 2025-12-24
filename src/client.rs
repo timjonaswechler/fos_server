@@ -4,7 +4,7 @@ use {
         notifications::NotifyError,
         server::helpers::{DISCOVERY_PORT, MAGIC},
         status_management::{
-            ClientShutdownStep, ClientStatus, MainMenuContext, SetClientShutdownStep,
+            ClientShutdownStep, ClientStatus, MultiplayerSetup, SetClientShutdownStep,
             SetClientStatus,
         },
     },
@@ -51,7 +51,7 @@ impl Plugin for ClientLogicPlugin {
             .add_systems(
                 Update,
                 (client_discover_server, client_discover_server_collect)
-                    .run_if(in_state(MainMenuContext::Multiplayer)),
+                    .run_if(in_state(MultiplayerSetup::JoinGame)),
             );
     }
 }
@@ -59,6 +59,7 @@ impl Plugin for ClientLogicPlugin {
 #[derive(Resource, Default)]
 pub struct ClientTarget {
     pub input: String, // "127.0.0.1:8080"
+    pub real_address: String,
     pub ip: String,
     pub port: u16,
     pub is_valid: bool,
@@ -67,13 +68,27 @@ pub struct ClientTarget {
 impl ClientTarget {
     pub fn update_input(&mut self, input: String) {
         self.input = input;
-        if let Some((ip, port)) = helpers::parse_target_live(&self.input) {
+        let trimmed = self.input.trim();
+
+        if let Some((ip, port)) = helpers::parse_target_live(trimmed) {
             self.ip = ip;
             self.port = port;
+
+            // Check if "https://" is already set in the input
+            if trimmed.starts_with("https://") {
+                // It is already there, so we use the trimmed input as the real address
+                self.real_address = trimmed.to_string();
+            } else {
+                // It's not there (or it was "http://"), so we add "https://"
+                // parse_target_live already stripped "http://" if present
+                let host = trimmed.strip_prefix("http://").unwrap_or(trimmed);
+                self.real_address = format!("https://{}", host);
+            }
             self.is_valid = true;
         } else {
             self.ip.clear();
             self.port = 0;
+            self.real_address.clear();
             self.is_valid = false;
         }
     }
@@ -150,7 +165,11 @@ pub fn client_discover_server_collect(
 ) {
     for (entity, mut task) in &mut query {
         if let Some(result) = check_ready(&mut task.0) {
-            discovered.0 = result;
+            for server in result {
+                if !discovered.0.contains(&server) {
+                    discovered.0.push(server);
+                }
+            }
             commands.entity(entity).despawn();
         }
     }
@@ -181,7 +200,7 @@ pub fn on_client_connecting(
         .spawn((Name::new(name), LocalClient))
         .queue(WebTransportClient::connect(
             config,
-            format!("https://{}", client_target.input),
+            client_target.real_address.clone(),
         ));
 }
 
@@ -301,7 +320,14 @@ pub mod helpers {
     }
 
     pub fn parse_target_live(input: &str) -> Option<(String, u16)> {
-        let input = input.trim();
+        let input = input
+            .trim()
+            .strip_prefix("https://")
+            .unwrap_or(input)
+            .strip_prefix("http://")
+            .unwrap_or(input)
+            .trim();
+
         if input.is_empty() {
             return None;
         }

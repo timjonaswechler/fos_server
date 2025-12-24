@@ -86,6 +86,7 @@ fn handle_overview_nav(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_new_game_nav(
     trigger: On<SetSingleplayerNewGame>,
     current_screen: Option<Res<State<NewGameMenuScreen>>>,
@@ -101,22 +102,32 @@ fn handle_new_game_nav(
     }
 
     match trigger.event() {
-        SetSingleplayerNewGame::Next => match current_screen {
-            Some(screen) => match *screen.get() {
-                NewGameMenuScreen::ConfigPlayer => next_screen.set(NewGameMenuScreen::ConfigWorld),
-                NewGameMenuScreen::ConfigWorld => next_screen.set(NewGameMenuScreen::ConfigSave),
-                NewGameMenuScreen::ConfigSave => {}
-            },
-            None => {}
-        },
-        SetSingleplayerNewGame::Previous => match current_screen {
-            Some(screen) => match *screen.get() {
-                NewGameMenuScreen::ConfigPlayer => next_setup.set(SingleplayerSetup::Overview),
-                NewGameMenuScreen::ConfigWorld => next_screen.set(NewGameMenuScreen::ConfigPlayer),
-                NewGameMenuScreen::ConfigSave => next_screen.set(NewGameMenuScreen::ConfigWorld),
-            },
-            None => {}
-        },
+        SetSingleplayerNewGame::Next => {
+            if let Some(screen) = current_screen {
+                match *screen.get() {
+                    NewGameMenuScreen::ConfigPlayer => {
+                        next_screen.set(NewGameMenuScreen::ConfigWorld)
+                    }
+                    NewGameMenuScreen::ConfigWorld => {
+                        next_screen.set(NewGameMenuScreen::ConfigSave)
+                    }
+                    NewGameMenuScreen::ConfigSave => {}
+                }
+            }
+        }
+        SetSingleplayerNewGame::Previous => {
+            if let Some(screen) = current_screen {
+                match *screen.get() {
+                    NewGameMenuScreen::ConfigPlayer => next_setup.set(SingleplayerSetup::Overview),
+                    NewGameMenuScreen::ConfigWorld => {
+                        next_screen.set(NewGameMenuScreen::ConfigPlayer)
+                    }
+                    NewGameMenuScreen::ConfigSave => {
+                        next_screen.set(NewGameMenuScreen::ConfigWorld)
+                    }
+                }
+            }
+        }
         SetSingleplayerNewGame::Confirm => {
             next_session_type.set(SessionType::Singleplayer);
             next_singleplayer_state.set(SingleplayerStatus::Starting);
@@ -144,12 +155,13 @@ fn handle_load_game_nav(
     }
 
     match trigger.event() {
-        SetSingleplayerSavedGame::Previous => match current_screen {
-            Some(screen) => match *screen.get() {
-                SavedGameMenuScreen::SelectSaveGame => next_setup.set(SingleplayerSetup::Overview),
-            },
-            _ => {}
-        },
+        SetSingleplayerSavedGame::Previous => {
+            if let Some(screen) = current_screen {
+                if *screen.get() == SavedGameMenuScreen::SelectSaveGame {
+                    next_setup.set(SingleplayerSetup::Overview);
+                }
+            }
+        }
         SetSingleplayerSavedGame::Confirm => {
             next_session_type.set(SessionType::Singleplayer);
             next_singleplayer_state.set(SingleplayerStatus::Starting);

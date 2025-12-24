@@ -1,0 +1,156 @@
+# Bevy 0.17 Professional Development Rules
+
+version: 1.0
+framework: bevy
+versitarget: 0.17+
+
+# --- ARCHITECTURAL MANDATES ---
+
+architecture:
+  plugins:
+    - "Modularize logic into `impl Plugin`. NEVER put game logic directly in `main.rs`."
+    - "Use `app.add_plugins(DefaultPlugins)` for standard apps."
+    - "Group related systems into `SystemSets` with the suffix `*Systems` (e.g., `InputSystems`, `CombatSystems`)."
+
+  state_management:
+    - "Use `States` for high-level game flow (Menu, Game, Pause)."
+    - "Use `DespawnOnExit<State>` (previously `StateScoped`) to automatically cleanup entities."
+    - "Use `DespawnOnEnter<State>` if you need cleanup on entry."
+
+# --- ECS & LOGIC (0.17 STRICT) ---
+
+ecs_patterns:
+  events_vs_messages:
+    - "CRITICAL 0.17 CHANGE: Distinguish between `Event` (Observers) and `Message` (Buffered)."
+    - "Buffered Events (Old style): Use `derive(Message)`, access via `MessageWriter<T>` / `MessageReader<T>`."
+    - "Immediate/Observer Events: Use `derive(EntityEvent)`, trigger via `commands.trigger(E)` or `world.trigger(E)`."
+    - "Observers: Use `commands.add_observer(|trigger: On<MyEvent>| ...)`."
+    - "Do NOT use `EventWriter` for `Event` types in 0.17. Use `MessageWriter` for buffered, `trigger` for immediate."
+
+  queries:
+    - "Use `Query<&mut Component>` for mutable access. Avoid conflicting queries."
+    - "Use `q.get(entity)` or `q.get_mut(entity)` instead of indexing/unwrap."
+    - "Handle `Query::single()` carefully. It returns `Result` now. Prefer `let Ok(item) = q.single() else { return; };`."
+    - "Use `Option<Single<T>>` if existence is optional."
+
+  components:
+    - "Derive `Component` and `Reflect` for all components: `#[derive(Component, Reflect)]`."
+    - "Use `#[require(ComponentB)]` on `ComponentA` to enforce dependencies automatically."
+    - "Use `EntityRow` instead of `u32` if dealing with raw entity indices (rare)."
+
+# --- UI & RENDERING (0.17 SPECIFIC) ---
+
+ui_development:
+  transforms:
+    - "CRITICAL 0.17 CHANGE: Use `UiTransform` for UI Nodes, NOT `Transform`."
+    - "Use `UiGlobalTransform` for reading global UI positions."
+    - "Do NOT assume `Transform` exists on UI entities."
+
+  z_ordering:
+    - "Use `UiStack` or implicit tree order. `ZIndex` behavior has changed/stabilized."
+
+  text:
+    - "`Text2d` is now in `bevy_sprite`, not `bevy_text`."
+
+rendering:
+  imports:
+    - "Render types are split. Import from specific crates if `bevy::prelude` fails:"
+    - "`bevy_render`, `bevy_camera` (Camera3d, Projection), `bevy_shader`, `bevy_light` (PointLight)."
+
+  assets:
+    - "Use `Handle::Weak` -> REPLACED by `Handle::Uuid`."
+    - "Check `Assets::insert` return values (now returns `Result`)."
+
+# --- BEHAVIORAL SAFETY ---
+
+safety_checks:
+  - "System Return Types: Systems can return `Result<(), Box<dyn Error>>`. Use `?` operator instead of `unwrap()` inside systems."
+  - "Unwrap Policy: strictly forbidden in `Update` systems. Permitted in `Startup` (panic on boot is okay)."
+  - "Reflection: `register_type` is mostly automatic now via `reflect_auto_register` feature. Do not spam explicit registrations unless generic."
+
+# --- MIGRATION CHEATSHEET (Internal Context) ---
+
+migrati0_16_to_0_17:
+  - "`EventWriter` -> `MessageWriter` (for buffered)"
+  - "`Trigger<T>` -> `On<T>` (for observers)"
+  - "`StateScoped` -> `DespawnOnExit`"
+  - "`Transform` (on UI) -> `UiTransform`"
+  - "`Window` component -> Split into `Window`, `CursorOptions`, etc."
+  - "`Pointer<Pressed>` -> `Pointer<Press>`"
+
+
+  #################################################
+
+
+  # Bevy 0.17 Architect Rules
+# Based on Bevy Migration Guides & Core Documentation (Apps, ECS, Plugins, Resources)
+
+framework: bevy
+version: 0.17+
+context: "Game Development / ECS Architecture"
+
+# --- 1. APP ARCHITECTURE & PLUGINS (Source: Getting Started - Apps/Plugins) ---
+
+architecture_rules:
+  plugin_philosophy:
+    - "MANDATE: The `main.rs` file must be minimal. It should only build the `App` and add the top-level Plugins."
+    - "Modularity: Every logical game feature (e.g., Input, Player, UI, Audio) MUST be its own `impl Plugin`."
+    - "Composition: Use `PluginGroup` if a feature requires multiple sub-plugins (e.g., `CombatPlugins`)."
+
+  startup_vs_update:
+    - "Use `Startup` schedule ONLY for one-time initialization (spawning cameras, loading static assets)."
+    - "Use `OnEnter(State::X)` for gameplay-specific setup (loading levels, spawning player)."
+    - "NEVER rely on the execution order of `Startup` systems unless explicitly chained (`.chain()`)."
+
+# --- 2. ECS DATA MODEL (Source: Getting Started - ECS) ---
+
+ecs_data_rules:
+  components:
+    - "Granularity: Prefer small, atomic components (`Health`, `Position`, `Velocity`) over monolithic structs (`PlayerState`)."
+    - "Derives: ALWAYS derive `Component` and `Reflect` (for debugging/serialization)."
+    - "Bundles: In 0.17+, prefer `#[require(Dependency)]` on components over traditional Bundles where possible for automatic dependency management."
+    - "Marker Components: Use empty structs (`struct Player;`) to tag entities for efficient querying."
+
+  resources:
+    - "Scope: Use `Resource` for global, unique data (Score, GameSettings, AssetCache)."
+    - "Local State: Use `Local<T>` for system-internal state that no other system needs to access."
+    - "Initialization: Implement `FromWorld` for resources that need `World` access during creation, otherwise `impl Default`."
+    - "Access: Use `Res<T>` for read-only and `ResMut<T>` for write access. Minimizing `ResMut` allows more parallel execution."
+
+# --- 3. LOGIC & SYSTEMS (Source: Getting Started - ECS) ---
+
+system_rules:
+  queries:
+    - "Filtering: Always use `With<T>` and `Without<T>` filters to narrow down queries. This improves performance significantly."
+    - "Change Detection: Use `Ref<T>` or `q.get(...).is_changed()` to react only to data updates, rather than running logic every frame."
+    - "Safety: Use `q.get(entity)` instead of `q.single()` unless you are mathematically certain there is exactly one entity (e.g., the Player in single-player)."
+
+  ordering:
+    - "Ambiguity: Bevy runs independent systems in parallel. NEVER assume order."
+    - "Constraints: Explicitly use `.before(SystemX)` or `.after(SystemSetY)` if order matters."
+    - "Sets: Organize systems into `SystemSet`s (e.g., `PhysicsSet`, `InputSet`) to apply ordering rules to groups of systems."
+
+# --- 4. MIGRATION & 0.17 SPECIFICS (Source: Migration 0.16 -> 0.17) ---
+
+modern_standards_017:
+  events_and_messages:
+    - "Pattern: Distinguish strict 'Events' (Observers) from 'Messages' (Buffered Queue)."
+    - "Buffered: Use `MessageWriter`/`MessageReader` for stream-like data (e.g., net packets, damage logs)."
+    - "Observers: Use `commands.trigger(Event)` for immediate logic (e.g., `OnDeath`, `OnClick`)."
+    - "Deprecation: Do NOT use `EventWriter` for immediate logic anymore."
+
+  ui_system:
+    - "Transforms: Use `UiTransform` for UI positioning. `Transform` is now strictly for 2D/3D world space."
+    - "Nesting: Be mindful that `UiTransform` propagates differently than world transforms."
+
+  system_returns:
+    - "Error Handling: Systems should return `Result<(), Box<dyn std::error::Error>>` (or `anyhow::Result`)."
+    - "Usage: Use the `?` operator for clean early returns. Bevy will log the error automatically."
+
+# --- 5. IMPLEMENTATION PROTOCOLS ---
+
+implementatistrategy:
+  - "Step 1 (Data): Define `Components` and `Resources` first."
+  - "Step 2 (Events): Define `Events`/`Messages` for communication."
+  - "Step 3 (Logic): Write Systems that operate on Data."
+  - "Step 4 (Registration): Add Systems to the `Plugin` in the `build()` method."

@@ -105,17 +105,13 @@ fn ui_client_system(
     client_state: Res<State<ClientStatus>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game - Client").show(egui.ctx_mut()?, |ui| {
-        ui.vertical_centered_justified(|ui| match *app_state.get() {
-            AppScope::InGame => match *game_mode_state.get() {
-                SessionType::Client => {
-                    ui.label(format!(
-                        "States: \n AppScope: {:?}\nGameMode: {:?}\nClientState: {:?}\n",
-                        app_state, game_mode_state, client_state
-                    ));
-                }
-                _ => {} // singleplayer
-            },
-            _ => {} // menu
+        ui.vertical_centered_justified(|ui| {
+            if *app_state.get() == AppScope::InGame && *game_mode_state.get() == SessionType::Client {
+                ui.label(format!(
+                    "States: \n AppScope: {:?}\nGameMode: {:?}\nClientState: {:?}\n",
+                    app_state, game_mode_state, client_state
+                ));
+            }
         });
     });
     Ok(())
@@ -130,11 +126,10 @@ fn ui_game_menu(
     server_visibility: Option<Res<State<ServerVisibility>>>,
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game Menu").show(egui.ctx_mut()?, |ui| {
-        ui.vertical_centered_justified(|ui| match *app_state.get() {
-            AppScope::InGame => match *in_game_mode_state.get() {
-                SessionStatus::Paused => {
-                    ui.label("Game Menu");
-                    match *game_mode_state.get() {
+        ui.vertical_centered_justified(|ui| {
+            if *app_state.get() == AppScope::InGame && *in_game_mode_state.get() == SessionStatus::Paused {
+                ui.label("Game Menu");
+                match *game_mode_state.get() {
                         SessionType::Singleplayer => {
                             if let Some(server_visibility) = server_visibility {
                                 match *server_visibility.get() {
@@ -177,10 +172,7 @@ fn ui_game_menu(
                             }
                             SessionType::None => {}
                         });
-                }
-                _ => {} // playing
-            },
-            _ => {} // menu
+            }
         });
     });
     Ok(())
@@ -389,27 +381,25 @@ fn render_multiplayer_join_game(
 ) {
     ui.heading("Local Servers");
 
-    // Local Servers Liste (SetClientTarget anpassen!)
-    match discovered_servers {
-        Some(res) => {
-            let servers = &res.0;
-            if servers.is_empty() {
-                ui.label("No local servers discovered...");
-            } else {
-                ui.separator();
-                for server in servers {
-                    if ui.selectable_label(false, format!("{}", server)).clicked() {
-                        // ✅ input statt target
-                        actions.commands.queue(SetClientTarget {
-                            input: server.clone(),
-                        });
-                    }
+    ui.horizontal(|ui| {
+        ui.label("Searching for local servers...");
+        ui.add(egui::Spinner::new());
+    });
+
+    // Local Servers Liste
+    if let Some(res) = discovered_servers {
+        let servers = &res.0;
+        if !servers.is_empty() {
+            ui.separator();
+            for server in servers {
+                if ui.selectable_label(false, server.to_string()).clicked() {
+                    // ✅ input statt target
+                    actions.commands.queue(SetClientTarget {
+                        input: server.clone(),
+                    });
                 }
-                ui.separator();
             }
-        }
-        None => {
-            ui.label("No local servers discovered...");
+            ui.separator();
         }
     }
 

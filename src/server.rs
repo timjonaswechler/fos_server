@@ -110,7 +110,6 @@ pub fn on_server_is_public(
                 // commands.entity(root).insert(AeronetRepliconServer);
                 println!("WebTransport server is fully opened");
                 next_state.set(ServerVisibility::Public);
-                return;
             }
         }
         Err(_) => {
@@ -132,7 +131,6 @@ pub fn server_is_running(
     if server_query.is_empty() {
         {
             next_state.set(ServerVisibility::GoingPrivate);
-            return;
         }
     }
 }

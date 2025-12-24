@@ -1,0 +1,94 @@
+# Rust Project Rules & Guidelines
+
+version: 2.0
+language: rust
+edition: 2021+
+
+# --- CORE BEHAVIOR & MANDATES ---
+
+behavioral_mandates:
+  - conventions: "Rigorously adhere to existing project conventions (`rustfmt.toml`, `clippy.toml`). Analyze surrounding code first."
+  - libraries: "NEVER assume a crate is available. Check `Cargo.toml` first. Prefer standard library over external dependencies for trivial tasks."
+  - style: "Mimic existing architectural patterns. If the project uses `anyhow` for errors, do not introduce `thiserror` without context, and vice versa."
+  - comments: "Focus on the WHY. Do not describe syntax. Do not talk to the user in code comments."
+  - no_revert: "Do not revert changes unless explicitly requested or if they caused a compilation error."
+  - proactiveness: "When fixing bugs, strictly follow the 'Verify' workflow (Test + Clippy) before finishing."
+
+# --- RUST CODING GUIDELINES ---
+
+coding_standards:
+  correctness_and_clarity:
+    - "Prioritize memory safety and borrow-checker compliance strictly."
+    - "Prefer explicit types over excessive type inference where it aids readability."
+    - "Avoid micro-optimizations (`unsafe`, manual memory management) unless profiling proves a bottleneck."
+
+  file_structure:
+    - "Prefer modern module system: `src/module.rs` over `src/module/mod.rs`."
+    - "Keep `lib.rs` or `main.rs` minimal; delegate logic to submodules."
+    - "Unit tests go at the bottom of the file in a `mod tests` module."
+    - "Integration tests go into the `tests/` directory."
+  
+  formatting_discipline:
+    - "Respect the existing coding style of the file."
+    - "If the file uses 4 spaces, use 4 spaces. If it uses tabs, use tabs."
+    - "Do not reorganize imports/use statements unless necessary for the specific change."
+
+  naming_conventions:
+    - "Strictly follow Rust RFC 430 (Snake case for variables/functions, PascalCase for types)."
+    - "No abbreviations (use `request` not `req`, `context` not `ctx` unless standard in framework like GPUI)."
+    - "Variable names must be descriptive implies ownership or lifetime (e.g., `owned_data` vs `data_ref`)."
+
+  error_handling:
+    - "NEVER use `unwrap()` or `expect()` in production code. Use `?` propagation."
+    - "Exceptions for unwrap: Test code, or strictly proven invariants (comment required: `// SAFETY: ...`)."
+    - "Library code: Use `thiserror` for structured, specific error types."
+    - "Application code (Binaries): Use `anyhow` for flexible error handling."
+    - "Do not silently discard `Result`. Avoid `let _ = ...` for fallible operations."
+
+  async_rust:
+    - "Use variable shadowing to minimize borrow lifetimes in async blocks (e.g., `let data = data.clone();`)."
+    - "Avoid holding `MutexGuard` across `.await` points (can cause deadlocks)."
+    - "Prefer message passing (`mpsc`, `broadcast`) over shared state where possible."
+    - "If using GPUI or similar UI frameworks: Ensure async errors propagate to the UI layer, do not swallow them."
+
+  safety:
+    - "Avoid `unsafe` block unless absolutely necessary."
+    - "Every `unsafe` block MUST have a `// SAFETY: ...` comment explaining the invariant."
+
+# --- WORKFLOW & TOOLING ---
+
+workflow:
+  1_investigate:
+    - "Use `codebase_investigator` or `grep` to understand struct definitions and trait implementations."
+    - "Read `Cargo.toml` to understand available features and dependencies."
+
+  2_plan:
+    - "Identify if the change requires a SemVer major/minor bump (for libraries)."
+    - "Plan struct changes carefully to avoid breaking public APIs."
+
+  3_implement:
+    - "Apply changes incrementally."
+    - "Use `todo!()` macro as a placeholder during intermediate steps to keep the compiler helpful."
+
+  4_verify_standard:
+    description: "Must be run after implementation"
+    commands:
+      - "cargo check"
+      - "cargo fmt --all"
+      - "cargo clippy -- -D warnings"  # Treat warnings as errors
+      - "cargo test"
+
+# --- SCAFFOLDING & NEW PROJECTS ---
+
+scaffolding:
+  - "When starting new CLIs: Use `clap` (derive pattern) for arguments."
+  - "When starting new Async apps: Default to `tokio` unless directed otherwise."
+  - "Serialization: Default to `serde` with `derive` feature."
+  - "Logging: Setup `tracing` and `tracing-subscriber` immediately."
+
+# --- OPERATIONAL EFFICIENCY ---
+
+shell_interaction:
+  - "Use `cargo check` for quick feedback loops, it is faster than `cargo build`."
+  - "When output is long, use `> output.log` and then `grep` or `tail` to inspect."
+  - "Do not simply dump full compiler errors; analyze the error code (e.g., E0308) and explain the fix."
