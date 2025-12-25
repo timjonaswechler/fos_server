@@ -32,7 +32,7 @@ impl Plugin for SessionPlugin {
     }
 }
 
-/// Events für Aktionen im In-Game Pause Menü
+/// Events for actions in the in-game pause menu
 #[derive(Event, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PauseMenuEvent {
     Resume,
@@ -102,7 +102,7 @@ impl ComputedStates for SessionLifecycle {
                 })
             }
             SessionType::Client => client_status.map_or(Some(SessionLifecycle::None), |status| {
-                // Client-Logik
+                // Client logic
                 match status {
                     ClientStatus::Running => Some(SessionLifecycle::Active),
                     ClientStatus::Connecting | ClientStatus::Connected | ClientStatus::Syncing => {

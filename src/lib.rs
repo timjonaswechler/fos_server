@@ -30,7 +30,7 @@ impl Plugin for FOSServerPlugin {
             ClientLogicPlugin,
         ))
         .init_resource::<NotificationQueue>()
-        .add_observer(on_notify_error)
+        .add_observer(on_notify)
         .add_systems(Update, notification_lifecycle);
     }
 }

@@ -2,7 +2,7 @@ use {
     super::main::MainMenuContext,
     crate::{
         client::ClientTarget,
-        notifications::NotifyError,
+        notifications::Notify,
         status_management::{ClientStatus, ServerVisibility, SessionType, SingleplayerStatus},
     },
     bevy::prelude::*,
@@ -205,11 +205,11 @@ fn handle_join_game_nav(
         SetJoinGame::Back => next_setup.set(MultiplayerSetup::Overview),
         SetJoinGame::Confirm => {
             let Some(client_target) = client_target else {
-                commands.trigger(NotifyError::new("⚠️ Bitte Server-Adresse eingeben!"));
+                commands.trigger(Notify::warning("⚠️ Please enter a server address!"));
                 return;
             };
             if !client_target.is_valid {
-                return; // Fehler schon beim Setzen gezeigt
+                return; // Error already shown during input
             }
             info!(
                 "✅ Server validiert: {}:{}",

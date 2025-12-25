@@ -183,10 +183,10 @@ fn ui_game_menu(
 }
 
 fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
-    // 1. ctx holen (nur &mut-Borrow auf params.egui, kein Move)
+    // 1. Get ctx (only &mut-borrow on params.egui, no move)
     let ctx = params.egui.ctx_mut()?;
 
-    // 2. alles, was du brauchst, in lokale Referenzen packen
+    // 2. Pack everything you need into local references
     let app_state = &params.app_state;
     let menu_state = &params.menu_state;
     let single = params.singleplayer_menu_state.as_deref();
@@ -194,7 +194,7 @@ fn ui_menu_system(mut params: MenuUiParams) -> Result<(), BevyError> {
     let discovered = params.discovered_servers.as_deref();
     let client_target = params.client_target.as_deref_mut();
 
-    // 3. mutables „Action“-Bundle bauen für Commands + Exit
+    // 3. Build mutable "Action" bundle for Commands + Exit
     let mut actions = MenuActions {
         commands: params.commands,
     };
@@ -390,14 +390,14 @@ fn render_multiplayer_join_game(
         ui.add(egui::Spinner::new());
     });
 
-    // Local Servers Liste
+    // Local Servers List
     if let Some(res) = discovered_servers {
         let servers = &res.0;
         if !servers.is_empty() {
             ui.separator();
             for server in servers {
                 if ui.selectable_label(false, server.to_string()).clicked() {
-                    // ✅ input statt target
+                    // ✅ input instead of target
                     actions.commands.queue(SetClientTarget {
                         input: server.clone(),
                     });
@@ -420,7 +420,7 @@ fn render_multiplayer_join_game(
                 target.update_input(val);
             }
 
-            // Status anzeigen
+            // Display status
             ui.label(match target.is_valid {
                 true => "Valid",
                 false => {

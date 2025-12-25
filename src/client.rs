@@ -1,7 +1,7 @@
 use {
     crate::{
         local::LocalClient,
-        notifications::NotifyError,
+        notifications::Notify,
         server::helpers::{DISCOVERY_PORT, MAGIC},
         status_management::{
             ClientShutdownStep, ClientStatus, MultiplayerSetup, SetClientShutdownStep,
@@ -186,7 +186,7 @@ pub fn on_client_connecting(
     let config = match client_config(cert_hash) {
         Ok(config) => config,
         Err(err) => {
-            commands.trigger(NotifyError::new(format!(
+            commands.trigger(Notify::error(format!(
                 "Failed to create client config: {err:?}"
             )));
             return;
@@ -215,19 +215,19 @@ fn on_client_connection_failed(
             match &event.reason {
                 DisconnectReason::ByError(err) => {
                     error!("Connection Error: {}", err);
-                    commands.trigger(NotifyError::new(format!("Connection Error: {}", err)));
+                    commands.trigger(Notify::error(format!("Connection Error: {}", err)));
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
                 DisconnectReason::ByUser(err) => {
                     error!("Connection Error: {}", err);
-                    commands.trigger(NotifyError::new(format!("Connection Error: {}", err)));
+                    commands.trigger(Notify::error(format!("Connection Error: {}", err)));
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
                 DisconnectReason::ByPeer(err) => {
                     error!("Connection Error: {}", err);
-                    commands.trigger(NotifyError::new(format!("Connection Error: {}", err)));
+                    commands.trigger(Notify::error(format!("Connection Error: {}", err)));
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
