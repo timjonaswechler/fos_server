@@ -30,6 +30,6 @@ fn on_server_visibility_event(
     event: On<SetServerVisibility>,
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
-    //TODO: going public only when in Game Menu or PendingPublic State before
+    // TODO: going public only when in Game Menu or PendingPublic State before
     next_state.set(event.transition);
 }

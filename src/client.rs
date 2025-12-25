@@ -38,12 +38,10 @@ impl Plugin for ClientLogicPlugin {
                 OnEnter(ClientStatus::Disconnecting),
                 on_client_start_disconnecting,
             )
-            .add_observer(on_client_connected)
             .add_systems(
                 Update,
                 client_syncing.run_if(in_state(ClientStatus::Syncing)),
             )
-            .add_observer(on_client_connection_failed)
             .add_systems(
                 Update,
                 client_disconnecting.run_if(in_state(ClientStatus::Disconnecting)),
@@ -201,18 +199,20 @@ pub fn on_client_connecting(
         .queue(WebTransportClient::connect(
             config,
             client_target.real_address.clone(),
-        ));
+        ))
+        .observe(on_client_connected)
+        .observe(on_client_connection_failed);
 }
 
 fn on_client_connection_failed(
-    event: On<Disconnected>,
+    trigger: On<Disconnected>,
     current_state: Option<Res<State<ClientStatus>>>,
     mut commands: Commands,
     mut client_target: ResMut<ClientTarget>,
 ) {
     if let Some(current_state) = current_state {
         if *current_state.get() == ClientStatus::Connecting {
-            match &event.reason {
+            match &trigger.reason {
                 DisconnectReason::ByError(err) => {
                     error!("Connection Error: {}", err);
                     commands.trigger(Notify::error(format!("Connection Error: {}", err)));
@@ -236,7 +236,11 @@ fn on_client_connection_failed(
     }
 }
 
-pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
+pub fn on_client_connected(
+    trigger: On<Add, Session>,
+    names: Query<&Name>,
+    mut commands: Commands,
+) {
     let target = trigger.event_target();
 
     let name = names.get(target).ok();

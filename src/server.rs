@@ -39,9 +39,7 @@ impl Plugin for ServerLogicPlugin {
                 OnEnter(ServerVisibility::GoingPrivate),
                 on_server_going_private,
             )
-            .add_observer(on_check_is_server_private)
-            .add_observer(on_server_session_request)
-            .add_observer(on_server_is_public);
+            .add_observer(on_server_session_request);
     }
 }
 
@@ -95,28 +93,17 @@ pub fn on_server_going_public(
 
     commands
         .spawn(Name::new("WebTransportServer"))
-        .queue(WebTransportServer::open(config));
+        .queue(WebTransportServer::open(config))
+        .observe(on_server_is_public)
+        .observe(on_check_is_server_private);
 }
 
 pub fn on_server_is_public(
-    event: On<Add, Server>,
-    // mut commands: Commands,
-    roots: Query<Entity, With<WebTransportServer>>,
+    _trigger: On<Add, Server>,
     mut next_state: ResMut<NextState<ServerVisibility>>,
 ) {
-    match roots.single() {
-        Ok(root) => {
-            if root == event.entity {
-                // commands.entity(root).insert(AeronetRepliconServer);
-                println!("WebTransport server is fully opened");
-                next_state.set(ServerVisibility::Public);
-            }
-        }
-        Err(_) => {
-            // Handle error case
-            // multiply or None Server entity was found
-        }
-    }
+    println!("WebTransport server is fully opened");
+    next_state.set(ServerVisibility::Public);
 }
 
 pub fn on_server_is_running(_: Commands) {
