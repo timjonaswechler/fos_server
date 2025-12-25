@@ -215,16 +215,19 @@ fn on_client_connection_failed(
             match &event.reason {
                 DisconnectReason::ByError(err) => {
                     error!("Connection Error: {}", err);
+                    commands.trigger(NotifyError::new(format!("Connection Error: {}", err)));
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
                 DisconnectReason::ByUser(err) => {
                     error!("Connection Error: {}", err);
+                    commands.trigger(NotifyError::new(format!("Connection Error: {}", err)));
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }
                 DisconnectReason::ByPeer(err) => {
                     error!("Connection Error: {}", err);
+                    commands.trigger(NotifyError::new(format!("Connection Error: {}", err)));
                     client_target.is_valid = false;
                     commands.trigger(SetClientStatus::Failed);
                 }

@@ -39,6 +39,10 @@ fn main() -> AppExit {
                 .run_if(in_state(AppScope::InGame))
                 .run_if(in_state(SessionStatus::Paused)),
         )
+        .add_systems(
+            EguiPrimaryContextPass,
+            ui_notification_system,
+        )
         .run()
 }
 

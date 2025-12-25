@@ -29,9 +29,9 @@ impl Plugin for FOSServerPlugin {
             ServerLogicPlugin,
             ClientLogicPlugin,
         ))
-        .init_resource::<ErrorMessage>()
+        .init_resource::<NotificationQueue>()
         .add_observer(on_notify_error)
-        .add_systems(Update, error_lifecycle);
+        .add_systems(Update, notification_lifecycle);
     }
 }
 
