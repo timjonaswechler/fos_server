@@ -196,11 +196,13 @@ pub fn on_check_is_server_private(_: On<Closed>, mut commands: Commands) {
 pub fn on_server_session_request(trigger: On<SessionRequest>, clients: Query<&ChildOf>) {
     let client = trigger.event_target();
     let Ok(&ChildOf(server)) = clients.get(client) else {
-        {
-            return;
-        }
+        return;
     };
 
+    // TODO: Implement one-session-per-IP check.
+    // Currently SessionRequest in aeronet_webtransport (0.18) does not expose remote_address.
+    // We need to find another way to validate the client IP or wait for an update.
+    
     helpers::handle_server_accept_connection(client, server, trigger);
 }
 
