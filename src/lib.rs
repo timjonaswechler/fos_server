@@ -1,5 +1,6 @@
 pub mod client;
 pub mod notifications;
+pub mod protocol;
 pub mod server;
 pub mod singleplayer;
 pub mod status_management;
@@ -7,9 +8,11 @@ pub use notifications::*;
 pub mod local;
 
 use {
+    aeronet_replicon::{client::AeronetRepliconClientPlugin, server::AeronetRepliconServerPlugin},
     bevy::prelude::*,
-    // bevy_replicon::prelude::*,
+    bevy_replicon::prelude::*,
     client::ClientLogicPlugin,
+    protocol::ProtocolPlugin,
     serde::{Deserialize, Serialize},
     server::ServerLogicPlugin,
     singleplayer::SingleplayerLogicPlugin,
@@ -24,6 +27,10 @@ pub struct DummyEvent;
 impl Plugin for FOSServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins((
+            RepliconPlugins,
+            AeronetRepliconServerPlugin,
+            AeronetRepliconClientPlugin,
+            ProtocolPlugin,
             StatusManagementPlugin,
             SingleplayerLogicPlugin,
             ServerLogicPlugin,

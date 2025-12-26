@@ -2,6 +2,7 @@ use {
     crate::{
         local::LocalClient,
         notifications::Notify,
+        protocol::{ClientChat, ServerChat},
         server::helpers::{DISCOVERY_PORT, MAGIC},
         status_management::{
             ClientShutdownStep, ClientStatus, MultiplayerSetup, SetClientShutdownStep,
@@ -13,6 +14,7 @@ use {
         Session,
     },
     aeronet_io::connection::DisconnectReason,
+    aeronet_replicon::client::AeronetRepliconClient,
     aeronet_webtransport::client::{WebTransportClient, WebTransportClientPlugin},
     bevy::{
         prelude::*,
@@ -44,13 +46,65 @@ impl Plugin for ClientLogicPlugin {
             )
             .add_systems(
                 Update,
-                client_disconnecting.run_if(in_state(ClientStatus::Disconnecting)),
+                (
+                    client_disconnecting.run_if(in_state(ClientStatus::Disconnecting)),
+                    receive_server_chat.run_if(in_state(ClientStatus::Running)),
+                    send_test_chat.run_if(in_state(ClientStatus::Running)),
+                ),
             )
             .add_systems(
                 Update,
                 (client_discover_server, client_discover_server_collect)
                     .run_if(in_state(MultiplayerSetup::JoinGame)),
             );
+    }
+}
+
+fn on_client_disconnected(
+    trigger: On<Disconnected>,
+    state: Res<State<ClientStatus>>,
+    mut commands: Commands,
+) {
+    match state.get() {
+        ClientStatus::Syncing | ClientStatus::Running => {
+            on_client_receive_disconnect(&trigger.reason, &mut commands);
+        }
+        _ => {}
+    }
+}
+
+pub fn on_client_receive_disconnect(reason: &DisconnectReason, commands: &mut Commands) {
+    match reason {
+        DisconnectReason::ByPeer(msg) => {
+            info!("Server closed connection: {msg}");
+            commands.trigger(Notify::info(format!("Server closed connection: {msg}")));
+        }
+        DisconnectReason::ByError(err) => {
+            error!("Connection lost: {err}");
+            commands.trigger(Notify::error(format!("Connection lost: {err}")));
+        }
+        DisconnectReason::ByUser(_) => return,
+    }
+
+    commands.trigger(SetClientStatus::Failed);
+}
+
+pub fn receive_server_chat(mut chat_events: MessageReader<ServerChat>, mut commands: Commands) {
+    for event in chat_events.read() {
+        info!("{}: {}", event.sender, event.text);
+        commands.trigger(Notify::info(format!("{}: {}", event.sender, event.text)));
+    }
+}
+
+pub fn send_test_chat(
+    keyboard: Res<ButtonInput<KeyCode>>,
+    mut chat_events: MessageWriter<ClientChat>,
+) {
+    if keyboard.just_pressed(KeyCode::KeyC) {
+        info!("Sending test chat message...");
+        chat_events.write(ClientChat {
+            text: "Hello from Client!".to_string(),
+        });
     }
 }
 
@@ -195,13 +249,14 @@ pub fn on_client_connecting(
     let name = format!("{:#?}. {:?}", *session_id, client_target.input);
     info!("Connecting to server at {:?}", client_target.input);
     commands
-        .spawn((Name::new(name), LocalClient))
+        .spawn((Name::new(name), LocalClient, AeronetRepliconClient))
         .queue(WebTransportClient::connect(
             config,
             client_target.real_address.clone(),
         ))
         .observe(on_client_connected)
-        .observe(on_client_connection_failed);
+        .observe(on_client_connection_failed)
+        .observe(on_client_disconnected);
 }
 
 fn on_client_connection_failed(
@@ -236,11 +291,7 @@ fn on_client_connection_failed(
     }
 }
 
-pub fn on_client_connected(
-    trigger: On<Add, Session>,
-    names: Query<&Name>,
-    mut commands: Commands,
-) {
+pub fn on_client_connected(trigger: On<Add, Session>, names: Query<&Name>, mut commands: Commands) {
     let target = trigger.event_target();
 
     let name = names.get(target).ok();
@@ -256,10 +307,6 @@ pub fn client_syncing(mut commands: Commands) {
     info!("TODO: Implement client sync system");
     commands.trigger(SetClientStatus::Transition(ClientStatus::Running));
 }
-
-pub fn on_client_running() {}
-
-pub fn on_client_receive_disconnect() {}
 
 pub fn on_client_start_disconnecting(mut commands: Commands) {
     info!("Starting Client Disconnect sequence");

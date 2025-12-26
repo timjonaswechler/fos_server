@@ -10,17 +10,23 @@ repository = "https://github.com/timjonaswechler/fos_server"
 [dependencies]
 # general
 bevy = { version = "0.17.2"  }
+bevy_state = {version = "0.17.2",optional=true}
 
 # networking
 aeronet = { version = "0.18.0"}
 aeronet_io = { version = "0.18.0"}
 aeronet_channel = { version = "0.18.0" }
-# aeronet_replicon = { version = "0.18.0", features = ["client", "server"] }
+aeronet_replicon = { version = "0.18.0", features = ["client", "server"] }
 aeronet_webtransport = { version = "0.18.0", features = ["client","server", "dangerous-configuration"] }
-# bevy_replicon = { version = "0.37.0" }
+bevy_replicon = { version = "0.37.0" }
 
 # debug
 bevy_egui = { version = "0.38.0" }
 bevy-inspector-egui = "0.35"
 anyhow = "1.0"
 serde = { version = "1.0.228", features = ["derive"] }
+
+[features]
+default=["server"]
+server=["bevy_state"]
+client=[]

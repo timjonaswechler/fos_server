@@ -1,11 +1,14 @@
 use {
-    crate::status_management::{ServerVisibility, SetServerVisibility, SingleplayerStatus},
+    crate::{
+        protocol::{ClientChat, ServerChat},
+        status_management::{ServerVisibility, SetServerVisibility, SingleplayerStatus},
+    },
     aeronet::io::{
-        connection::Disconnect,
+        connection::{Disconnect, Disconnected},
         server::{Close, Closed, Server, ServerEndpoint},
     },
-    // aeronet_replicon::client::AeronetRepliconClient,
-    // aeronet_replicon::server::AeronetRepliconServer,
+    aeronet_io::connection::DisconnectReason,
+    aeronet_replicon::server::AeronetRepliconServer,
     aeronet_webtransport::{
         cert,
         server::{
@@ -13,6 +16,7 @@ use {
         },
     },
     bevy::prelude::*,
+    bevy_replicon::prelude::*,
     core::time::Duration,
     helpers::DiscoveryServerPlugin,
 };
@@ -33,13 +37,14 @@ impl Plugin for ServerLogicPlugin {
             .add_systems(OnEnter(ServerVisibility::Public), on_server_is_running)
             .add_systems(
                 Update,
-                server_is_running.run_if(in_state(ServerVisibility::Public)),
+                (server_is_running, handle_client_chat).run_if(in_state(ServerVisibility::Public)),
             )
             .add_systems(
                 OnEnter(ServerVisibility::GoingPrivate),
                 on_server_going_private,
             )
-            .add_observer(on_server_session_request);
+            .add_observer(on_server_session_request)
+            .add_observer(on_server_client_disconnected);
     }
 }
 
@@ -57,11 +62,7 @@ pub fn server_pending_going_public(
     }
 }
 
-pub fn on_server_going_public(
-    mut commands: Commands,
-    mut next_state: ResMut<NextState<ServerVisibility>>,
-) {
-    next_state.set(ServerVisibility::GoingPublic);
+pub fn on_server_going_public(mut commands: Commands) {
     // TODO: implement error if server cant get started
     // TODO: Implement User interface infos for server
     // TODO: Implement Port usage detection
@@ -78,9 +79,9 @@ pub fn on_server_going_public(
     let _cert_hash = cert::hash_to_b64(cert.hash());
     println!("************************");
     println!("SPKI FINGERPRINT");
-    println!("  {{spki_fingerprint}}");
+    println!("  {_spki_fingerprint}");
     println!("CERTIFICATE HASH");
-    println!("  {{cert_hash}}");
+    println!("  {_cert_hash}");
     println!("************************");
 
     let config = aeronet_webtransport::wtransport::ServerConfig::builder()
@@ -92,10 +93,30 @@ pub fn on_server_going_public(
         .build();
 
     commands
-        .spawn(Name::new("WebTransportServer"))
+        .spawn((Name::new("WebTransportServer"), AeronetRepliconServer))
         .queue(WebTransportServer::open(config))
         .observe(on_server_is_public)
         .observe(on_check_is_server_private);
+}
+
+pub fn handle_client_chat(
+    mut client_chat_events: MessageReader<FromClient<ClientChat>>,
+    mut server_chat_events: MessageWriter<ToClients<ServerChat>>,
+) {
+    for FromClient {
+        client_id, message, ..
+    } in client_chat_events.read()
+    {
+        info!("Chat from client {:?}: {}", client_id, message.text);
+
+        server_chat_events.write(ToClients {
+            mode: SendMode::Broadcast,
+            message: ServerChat {
+                sender: format!("Client {:?}", client_id),
+                text: message.text.clone(),
+            },
+        });
+    }
 }
 
 pub fn on_server_is_public(
@@ -189,20 +210,48 @@ pub fn on_server_session_request(trigger: On<SessionRequest>, clients: Query<&Ch
     // TODO: Implement one-session-per-IP check.
     // Currently SessionRequest in aeronet_webtransport (0.18) does not expose remote_address.
     // We need to find another way to validate the client IP or wait for an update.
-    
+
     helpers::handle_server_accept_connection(client, server, trigger);
 }
 
-pub fn on_server_client_timeout() {
-    todo!("Implement on_server_client_timeout")
+pub fn on_server_client_disconnected(
+    trigger: On<Disconnected>,
+    // Optional: Query for player data if needed
+) {
+    let client_entity = trigger.event_target();
+
+    match &trigger.reason {
+        DisconnectReason::ByPeer(reason) => {
+            on_server_client_graceful_disconnect(client_entity, reason);
+        }
+        DisconnectReason::ByError(err) => {
+            let err_msg = err.to_string();
+            // Simple heuristic to distinguish timeout from other errors
+            if err_msg.to_lowercase().contains("timed out") {
+                on_server_client_timeout(client_entity, err_msg);
+            } else {
+                on_server_client_lost(client_entity, err_msg);
+            }
+        }
+        DisconnectReason::ByUser(reason) => {
+            info!("Client {client_entity} was kicked by server: {reason}");
+        }
+    }
 }
 
-pub fn on_server_client_lost() {
-    todo!("Implement on_server_client_lost")
+pub fn on_server_client_timeout(client: Entity, msg: String) {
+    warn!("Client {client} timed out: {msg}");
+    // TODO: Cleanup player entity, notify others, etc.
 }
 
-pub fn on_server_client_graceful_disconnect() {
-    todo!("Implement on_server_client_graceful_disconnect")
+pub fn on_server_client_lost(client: Entity, msg: String) {
+    error!("Client {client} connection lost: {msg}");
+    // TODO: Handle sudden connection loss (e.g. keep player data for reconnect)
+}
+
+pub fn on_server_client_graceful_disconnect(client: Entity, msg: &str) {
+    info!("Client {client} left the game gracefully: {msg}");
+    // TODO: Save player state, clean up entity immediately
 }
 
 pub fn on_server_shutdown_notify_clients() {
