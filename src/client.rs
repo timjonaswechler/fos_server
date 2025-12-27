@@ -2,7 +2,6 @@ use {
     crate::{
         local::LocalClient,
         notifications::Notify,
-        protocol::{ClientChat, ServerChat},
         server::helpers::{DISCOVERY_PORT, MAGIC},
         status_management::{
             ClientShutdownStep, ClientStatus, MultiplayerSetup, SetClientShutdownStep,
@@ -46,11 +45,7 @@ impl Plugin for ClientLogicPlugin {
             )
             .add_systems(
                 Update,
-                (
-                    client_disconnecting.run_if(in_state(ClientStatus::Disconnecting)),
-                    receive_server_chat.run_if(in_state(ClientStatus::Running)),
-                    send_test_chat.run_if(in_state(ClientStatus::Running)),
-                ),
+                client_disconnecting.run_if(in_state(ClientStatus::Disconnecting)),
             )
             .add_systems(
                 Update,
@@ -87,25 +82,6 @@ pub fn on_client_receive_disconnect(reason: &DisconnectReason, commands: &mut Co
     }
 
     commands.trigger(SetClientStatus::Failed);
-}
-
-pub fn receive_server_chat(mut chat_events: MessageReader<ServerChat>, mut commands: Commands) {
-    for event in chat_events.read() {
-        info!("{}: {}", event.sender, event.text);
-        commands.trigger(Notify::info(format!("{}: {}", event.sender, event.text)));
-    }
-}
-
-pub fn send_test_chat(
-    keyboard: Res<ButtonInput<KeyCode>>,
-    mut chat_events: MessageWriter<ClientChat>,
-) {
-    if keyboard.just_pressed(KeyCode::KeyC) {
-        info!("Sending test chat message...");
-        chat_events.write(ClientChat {
-            text: "Hello from Client!".to_string(),
-        });
-    }
 }
 
 #[derive(Resource, Default)]

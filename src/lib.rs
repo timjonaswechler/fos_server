@@ -1,3 +1,4 @@
+pub mod chat;
 pub mod client;
 pub mod notifications;
 pub mod protocol;
@@ -11,6 +12,7 @@ use {
     aeronet_replicon::{client::AeronetRepliconClientPlugin, server::AeronetRepliconServerPlugin},
     bevy::prelude::*,
     bevy_replicon::prelude::*,
+    chat::ChatPlugin,
     client::ClientLogicPlugin,
     protocol::ProtocolPlugin,
     serde::{Deserialize, Serialize},
@@ -35,6 +37,7 @@ impl Plugin for FOSServerPlugin {
             SingleplayerLogicPlugin,
             ServerLogicPlugin,
             ClientLogicPlugin,
+            ChatPlugin,
         ))
         .init_resource::<NotificationQueue>()
         .add_observer(on_notify)

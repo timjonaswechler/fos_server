@@ -39,9 +39,10 @@ fn main() -> AppExit {
                 .run_if(in_state(AppScope::InGame))
                 .run_if(in_state(SessionStatus::Paused)),
         )
+        .add_systems(EguiPrimaryContextPass, ui_notification_system)
         .add_systems(
             EguiPrimaryContextPass,
-            ui_notification_system,
+            fos_server::chat::render_chat_ui.run_if(in_state(SessionLifecycle::Active)),
         )
         .run()
 }
@@ -110,7 +111,8 @@ fn ui_client_system(
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game - Client").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| {
-            if *app_state.get() == AppScope::InGame && *game_mode_state.get() == SessionType::Client {
+            if *app_state.get() == AppScope::InGame && *game_mode_state.get() == SessionType::Client
+            {
                 ui.label(format!(
                     "States: \n AppScope: {:?}\nGameMode: {:?}\nClientState: {:?}\n",
                     app_state, game_mode_state, client_state
@@ -131,51 +133,52 @@ fn ui_game_menu(
 ) -> Result<(), bevy::prelude::BevyError> {
     egui::Window::new("APP Game Menu").show(egui.ctx_mut()?, |ui| {
         ui.vertical_centered_justified(|ui| {
-            if *app_state.get() == AppScope::InGame && *in_game_mode_state.get() == SessionStatus::Paused {
+            if *app_state.get() == AppScope::InGame
+                && *in_game_mode_state.get() == SessionStatus::Paused
+            {
                 ui.label("Game Menu");
                 match *game_mode_state.get() {
-                        SessionType::Singleplayer => {
-                            if let Some(server_visibility) = server_visibility {
-                                match *server_visibility.get() {
-                                    ServerVisibility::Private => {
-                                        ui.button("Open to LAN ").clicked().then(|| {
-                                            commands.trigger(SetServerVisibility {
-                                                transition: ServerVisibility::GoingPublic,
-                                            });
+                    SessionType::Singleplayer => {
+                        if let Some(server_visibility) = server_visibility {
+                            match *server_visibility.get() {
+                                ServerVisibility::Private => {
+                                    ui.button("Open to LAN ").clicked().then(|| {
+                                        commands.trigger(SetServerVisibility {
+                                            transition: ServerVisibility::GoingPublic,
                                         });
+                                    });
+                                }
+                                ServerVisibility::Public => {
+                                    if let Some(ip) = fos_server::server::helpers::get_local_ip() {
+                                        ui.label(format!("Server IP: {}", ip));
                                     }
-                                    ServerVisibility::Public => {
-                                        if let Some(ip) = fos_server::server::helpers::get_local_ip() {
-                                            ui.label(format!("Server IP: {}", ip));
-                                        }
-                                        ui.button("Close to LAN").clicked().then(|| {
-                                            commands.trigger(SetServerVisibility {
-                                                transition: ServerVisibility::GoingPrivate,
-                                            });
+                                    ui.button("Close to LAN").clicked().then(|| {
+                                        commands.trigger(SetServerVisibility {
+                                            transition: ServerVisibility::GoingPrivate,
                                         });
-                                    }
-                                    _ => {}
-                                };
-                            }
+                                    });
+                                }
+                                _ => {}
+                            };
                         }
-                        SessionType::Client => {}
+                    }
+                    SessionType::Client => {}
+                    SessionType::None => {}
+                };
+                ui.button("Back")
+                    .clicked()
+                    .then(|| match *game_mode_state.get() {
+                        SessionType::Singleplayer => {
+                            commands.trigger(SetSingleplayerStatus {
+                                transition: SingleplayerStatus::Stopping,
+                            });
+                        }
+                        SessionType::Client => {
+                            commands
+                                .trigger(SetClientStatus::Transition(ClientStatus::Disconnecting));
+                        }
                         SessionType::None => {}
-                    };
-                    ui.button("Back")
-                        .clicked()
-                        .then(|| match *game_mode_state.get() {
-                            SessionType::Singleplayer => {
-                                commands.trigger(SetSingleplayerStatus {
-                                    transition: SingleplayerStatus::Stopping,
-                                });
-                            }
-                            SessionType::Client => {
-                                commands.trigger(SetClientStatus::Transition(
-                                    ClientStatus::Disconnecting,
-                                ));
-                            }
-                            SessionType::None => {}
-                        });
+                    });
             }
         });
     });
